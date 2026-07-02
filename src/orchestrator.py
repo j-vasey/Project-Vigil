@@ -192,13 +192,21 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     # 4. Generate response with inline tool tag instructions
                     inline_system_prompt = (
                         f"{system_prompt}\n\n"
-                        "Tool Tags — use these trigger tags inline in your response text when you need live data:\n"
-                        "  [RECALL: search keywords]  — retrieve facts from your active memory store.\n"
-                        "  [SEARCH: search query]     — perform a live web search.\n"
-                        "  [VIEW_UPCOMING_AGENDA: N]  — fetch the next N days of calendar events (e.g. [VIEW_UPCOMING_AGENDA: 7]).\n"
-                        "  [IMAGE: image description]  — generate and send an image to the user.\n"
-                        "Only use ONE tag per response. After inserting a tag, stop — the system will retrieve the data and let you continue.\n"
-                        "Voice Constraint: Never repeat raw tool output or bracketed headers like '[Recalled Memories]:' in your speech. Speak only in your natural character voice."
+                        "=== TOOL ACCESS ===\n"
+                        "You have access to the following tools. Use them whenever you need live data:\n"
+                        "  • web_search(query)            — live web / news search\n"
+                        "  • view_upcoming_agenda(days_ahead) — fetch upcoming calendar events\n"
+                        "  • recall_memories(query_string) — retrieve stored personal facts\n"
+                        "  • get_system_metrics()         — host CPU/RAM/disk usage\n"
+                        "PREFERRED: invoke tools natively if your runtime supports it.\n"
+                        "FALLBACK: if native tool calls are unavailable, embed ONE trigger tag in your reply:\n"
+                        "  [SEARCH: your query here]\n"
+                        "  [VIEW_UPCOMING_AGENDA: 7]\n"
+                        "  [RECALL: keywords]\n"
+                        "  [IMAGE: description]\n"
+                        "Do NOT include a tag AND prose together — use one or the other.\n"
+                        "NEVER send a raw tag to the user. Tags are internal signals only.\n"
+                        "=== END TOOL ACCESS ==="
                     )
                     response_text = await client.generate_response(prompt=prompt, system_prompt=inline_system_prompt)
                     
