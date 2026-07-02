@@ -212,14 +212,10 @@ class OllamaClient(BaseLLMClient):
                             last_tool_args = func_args
                             tool_result = await tool_registry.execute(func_name, func_args)
                         
-                        # Tool Response Wrapping
-                        wrapped_content = f"{tool_result}\n\n[SYSTEM: Data successfully retrieved. Do not repeat this tool call. Synthesize your final text output now.]"
-                        
                         messages.append({
                             "role": "tool",
-                            "content": wrapped_content,
                             "name": func_name,
-                            "tool_call_id": tool_call.get("id")
+                            "content": str(tool_result)
                         })
                             
             except Exception as e:
