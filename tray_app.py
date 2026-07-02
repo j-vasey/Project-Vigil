@@ -1,17 +1,27 @@
 import os
 import sys
 
-# Configure paths and unconditionally redirect standard streams when packaged (frozen)
+# Establish a writable user-scoped AppData directory for all runtime writes (logs, certs, crash dumps)
+base_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ProjectVigil')
+os.makedirs(base_data_dir, exist_ok=True)
+
+log_file_path = os.path.join(base_data_dir, 'project_vigil.log')
+crash_file_path = os.path.join(base_data_dir, 'import_crash.txt')
+stdout_log_path = os.path.join(base_data_dir, 'stdout.log')
+stderr_log_path = os.path.join(base_data_dir, 'stderr.log')
+cert_path = os.path.join(base_data_dir, 'cert.pem')
+key_path = os.path.join(base_data_dir, 'key.pem')
+
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
     # Only redirect stdout/stderr if we are NOT a child MCP server subprocess
     if not (len(sys.argv) > 2 and sys.argv[1] == "--mcp-server"):
         try:
-            sys.stdout = open(os.path.join(BASE_DIR, "stdout.log"), "w", buffering=1)
+            sys.stdout = open(stdout_log_path, "w", buffering=1)
         except BaseException:
             pass
         try:
-            sys.stderr = open(os.path.join(BASE_DIR, "stderr.log"), "w", buffering=1)
+            sys.stderr = open(stderr_log_path, "w", buffering=1)
         except BaseException:
             pass
 else:
@@ -30,7 +40,7 @@ try:
     from PIL import Image, ImageDraw
     from src.main import generate_self_signed_cert
 except BaseException as e:
-    with open(os.path.join(BASE_DIR, "import_crash.txt"), "w") as f:
+    with open(crash_file_path, "w") as f:
         import traceback
         traceback.print_exc(file=f)
     sys.exit(1)
@@ -43,13 +53,11 @@ icon = None
 def get_server_url():
     # Retrieve port from env or database
     port = int(os.environ.get("PORT", 8001))
-    cert_exists = os.path.exists(os.path.join(BASE_DIR, "cert.pem")) and os.path.exists(os.path.join(BASE_DIR, "key.pem"))
+    cert_exists = os.path.exists(cert_path) and os.path.exists(key_path)
     scheme = "https" if cert_exists else "http"
     return f"{scheme}://127.0.0.1:{port}"
 
 def check_ssl_certificates():
-    cert_path = os.path.join(BASE_DIR, "cert.pem")
-    key_path = os.path.join(BASE_DIR, "key.pem")
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         try:
             generate_self_signed_cert(cert_path, key_path)
@@ -63,8 +71,6 @@ def run_uvicorn():
         check_ssl_certificates()
         from src.main import app
         port = int(os.environ.get("PORT", 8001))
-        cert_path = os.path.join(BASE_DIR, "cert.pem")
-        key_path = os.path.join(BASE_DIR, "key.pem")
         use_ssl = os.path.exists(cert_path) and os.path.exists(key_path)
 
         config = uvicorn.Config(
@@ -162,7 +168,7 @@ if __name__ == "__main__":
                 from src.mcp.servers.memory import server
                 asyncio.run(server.run())
         except BaseException as e:
-            with open(os.path.join(BASE_DIR, "mcp_crash.txt"), "w") as f:
+            with open(os.path.join(base_data_dir, "mcp_crash.txt"), "w") as f:
                 import traceback
                 traceback.print_exc(file=f)
         sys.exit(0)
@@ -170,6 +176,6 @@ if __name__ == "__main__":
     try:
         setup_tray()
     except BaseException as e:
-        with open(os.path.join(BASE_DIR, "tray_crash.txt"), "w") as f:
+        with open(os.path.join(base_data_dir, "tray_crash.txt"), "w") as f:
             import traceback
             traceback.print_exc(file=f)

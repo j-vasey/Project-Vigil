@@ -16,11 +16,10 @@ from src.api import create_app
 
 # Root level configurations
 import sys
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG_FILE = os.path.join(BASE_DIR, "project_vigil.log")
+# Establish a writable user-scoped AppData directory for all runtime writes
+base_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ProjectVigil')
+os.makedirs(base_data_dir, exist_ok=True)
+LOG_FILE = os.path.join(base_data_dir, "project_vigil.log")
 
 handlers = [logging.FileHandler(LOG_FILE, encoding="utf-8")]
 if sys.stderr is not None:
@@ -235,7 +234,7 @@ def generate_self_signed_cert(cert_path: str = "cert.pem", key_path: str = "key.
     """
     import os
     import ipaddress
-    from datetime import datetime, timedelta
+    from datetime import datetime, timezone, timedelta
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes
@@ -269,9 +268,9 @@ def generate_self_signed_cert(cert_path: str = "cert.pem", key_path: str = "key.
     ).serial_number(
         x509.random_serial_number()
     ).not_valid_before(
-        datetime.utcnow()
+        datetime.now(timezone.utc)
     ).not_valid_after(
-        datetime.utcnow() + timedelta(days=365)
+        datetime.now(timezone.utc) + timedelta(days=365)
     ).add_extension(
         x509.SubjectAlternativeName([
             x509.IPAddress(ipaddress.ip_address("172.16.1.123")),
@@ -295,8 +294,10 @@ def generate_self_signed_cert(cert_path: str = "cert.pem", key_path: str = "key.
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8001))
-    cert_path = "cert.pem"
-    key_path = "key.pem"
+    base_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ProjectVigil')
+    os.makedirs(base_data_dir, exist_ok=True)
+    cert_path = os.path.join(base_data_dir, "cert.pem")
+    key_path = os.path.join(base_data_dir, "key.pem")
     
     # Auto-generate certs if not present to enable secure local HTTPS out-of-the-box
     try:

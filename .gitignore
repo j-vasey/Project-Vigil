@@ -41,3 +41,18 @@ todo.json
 # IDE settings
 .vscode/
 .idea/
+
+# MSIX / packaging artefacts (no longer used)
+*.msix
+*.pfx
+*.spec
+Releases/
+build_msix.py
+install.ps1
+install.bat
+
+# Runtime artefacts that should never be committed
+*.spec
+test_generated.png
+goals.json
+todo.json

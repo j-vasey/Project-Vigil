@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -36,7 +36,7 @@ class Conversation(Base):
     user_id = Column(String, index=True, nullable=False)       # Platform-specific unique user/chat identifier
     sender_type = Column(String, nullable=False)              # 'user' or 'bot'
     text = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 
 class Configuration(Base):
@@ -56,7 +56,7 @@ class ProactivityLog(Base):
     __tablename__ = "proactivity_logs"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    execution_time = Column(DateTime, default=datetime.utcnow, index=True)
+    execution_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     reason_code = Column(String, index=True, nullable=False)   # E.g. 'morning_brief', 'evening_summary'
     message_dispatched = Column(Text, nullable=True)          # Content sent, or NULL if blocked by DND
 
@@ -70,7 +70,7 @@ class ActiveMemory(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     fact = Column(Text, nullable=False)
     category = Column(String, index=True, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AgentJobState(Base):
@@ -85,7 +85,7 @@ class AgentJobState(Base):
     findings = Column(Text, nullable=True)                     # JSON string representation of sub-findings
     artifacts = Column(Text, nullable=True)                    # JSON string list of artifact file paths
     step_count = Column(Integer, default=0)
-    last_update = Column(DateTime, default=datetime.utcnow)
+    last_update = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class UserTrendLog(Base):
@@ -95,7 +95,7 @@ class UserTrendLog(Base):
     __tablename__ = "user_trend_logs"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     stress_level = Column(String, index=True, nullable=False)  # 'low', 'medium', 'high'
     topics = Column(String, nullable=True)                     # comma-separated topics
     user_message = Column(Text, nullable=True)

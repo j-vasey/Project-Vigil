@@ -127,7 +127,10 @@ def get_m365_redirect_uri(repo) -> str:
     custom_uri = repo.get_config("m365_redirect_uri", "")
     if custom_uri:
         return custom_uri
-    cert_exists = os.path.exists("cert.pem") and os.path.exists("key.pem")
+    base_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ProjectVigil')
+    cert_path = os.path.join(base_data_dir, "cert.pem")
+    key_path = os.path.join(base_data_dir, "key.pem")
+    cert_exists = os.path.exists(cert_path) and os.path.exists(key_path)
     scheme = "https" if cert_exists else "http"
     host_ip = get_lan_ip()
     return f"{scheme}://{host_ip}:8001/api/auth/m365/callback"
