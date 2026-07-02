@@ -2,7 +2,7 @@ import os
 import sqlite3
 import asyncio
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.mcp.servers.base import MCPServer
 
 server = MCPServer("server-m365-calendar")
@@ -57,8 +57,10 @@ async def get_valid_access_token() -> str:
     if expiry_str:
         try:
             expiry = datetime.fromisoformat(expiry_str)
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
             # Add a 60-second buffer
-            if datetime.utcnow() < (expiry - timedelta(seconds=60)):
+            if datetime.now(timezone.utc) < (expiry - timedelta(seconds=60)):
                 is_expired = False
         except Exception:
             pass
@@ -90,7 +92,7 @@ async def get_valid_access_token() -> str:
         new_access = data["access_token"]
         new_refresh = data.get("refresh_token", refresh_token)
         expires_in = data["expires_in"]
-        new_expiry = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+        new_expiry = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
         
         db_set_config("m365_access_token", new_access)
         db_set_config("m365_refresh_token", new_refresh)
@@ -114,8 +116,8 @@ async def view_upcoming_agenda(days_ahead: int = 7) -> str:
     except Exception as e:
         return str(e)
         
-    start_time = datetime.utcnow().isoformat() + "Z"
-    end_time = (datetime.utcnow() + timedelta(days=days_ahead)).isoformat() + "Z"
+    start_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    end_time = (datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=days_ahead)).isoformat()
     
     url = "https://graph.microsoft.com/v1.0/me/calendarview"
     headers = {
