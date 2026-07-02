@@ -5,31 +5,39 @@ setlocal EnableDelayedExpansion
 :: ============================================================
 ::  Project Vigil - update.bat
 ::  Pulls the latest code from GitHub and refreshes dependencies.
-::  Safe to run at any time: your database and secrets in
-::  %APPDATA%\ProjectVigil\ are NEVER touched.
+::  Your database and secrets in %APPDATA%\ProjectVigil\ are
+::  NEVER touched by this script.
 :: ============================================================
 
 set "ROOT=%~dp0"
 set "VENV=%ROOT%venv"
-set "WEBUI_SRC=%ROOT%webui\src"
-set "WEBUI_DIST=%ROOT%webui\dist"
 
+:: ---- 1. Git pull ----
 echo [Vigil Update] Pulling latest changes from GitHub...
-git -C "%ROOT%" pull origin main
+where git >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] git pull failed. Ensure you have Git installed and internet access.
+    echo [ERROR] Git is not installed or not on PATH.
+    echo         Download from https://git-scm.com/
     pause
     exit /b 1
 )
 
-:: Activate venv
+git -C "%ROOT%" pull origin main
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] git pull failed. Check your internet connection and remote URL.
+    pause
+    exit /b 1
+)
+
+:: ---- 2. Activate venv ----
 if not exist "%VENV%\Scripts\activate.bat" (
-    echo [Vigil Update] No virtual environment found - run launch.bat first.
+    echo [ERROR] Virtual environment not found. Run launch.bat first to set it up.
     pause
     exit /b 1
 )
 call "%VENV%\Scripts\activate.bat"
 
+:: ---- 3. Refresh Python dependencies ----
 echo [Vigil Update] Refreshing Python dependencies...
 pip install -q -r "%ROOT%requirements.txt"
 if %ERRORLEVEL% NEQ 0 (
@@ -38,32 +46,39 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: Rebuild WebUI if source has changed more recently than the dist bundle
-set "REBUILD_WEBUI=0"
-if not exist "%WEBUI_DIST%\index.html" set "REBUILD_WEBUI=1"
-:: Simple heuristic: if package.json is newer than index.html, rebuild
-for /f %%A in ('powershell -NoProfile -Command "(Get-Item \"%WEBUI_SRC%\App.jsx\").LastWriteTime"') do set "SRC_DATE=%%A"
-for /f %%A in ('powershell -NoProfile -Command "if (Test-Path \"%WEBUI_DIST%\index.html\") { (Get-Item \"%WEBUI_DIST%\index.html\").LastWriteTime } else { [datetime]::MinValue }"') do set "DIST_DATE=%%A"
-powershell -NoProfile -Command "if ([datetime]\"%SRC_DATE%\" -gt [datetime]\"%DIST_DATE%\") { exit 1 } else { exit 0 }"
-if %ERRORLEVEL% EQU 1 set "REBUILD_WEBUI=1"
-
-if "%REBUILD_WEBUI%"=="1" (
-    echo [Vigil Update] Rebuilding WebUI frontend...
-    pushd "%ROOT%webui"
-    call npm install --silent
-    call npm run build
-    if %ERRORLEVEL% NEQ 0 (
-        echo [ERROR] WebUI build failed.
-        popd
-        pause
-        exit /b 1
-    )
-    popd
-) else (
-    echo [Vigil Update] WebUI is up-to-date, skipping rebuild.
+:: ---- 4. Rebuild WebUI ----
+echo [Vigil Update] Rebuilding WebUI frontend...
+where npm >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [WARNING] npm not found - skipping WebUI rebuild.
+    echo           Install Node.js from https://nodejs.org/ if you need it.
+    goto done
 )
 
+if not exist "%ROOT%webui\package.json" (
+    echo [WARNING] No webui\package.json found - skipping WebUI rebuild.
+    goto done
+)
+
+pushd "%ROOT%webui"
+call npm install --silent
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] npm install failed.
+    popd
+    pause
+    exit /b 1
+)
+call npm run build
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] WebUI build failed.
+    popd
+    pause
+    exit /b 1
+)
+popd
+
+:done
 echo.
-echo [Vigil Update] Update complete! Run launch.bat to start Project Vigil.
+echo [Vigil Update] Done! Run launch.bat to start Project Vigil.
 pause
 endlocal

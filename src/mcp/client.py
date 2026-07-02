@@ -25,12 +25,17 @@ class MCPClient:
     async def start(self):
         try:
             logger.info(f"[MCP Client - {self.name}] Starting process with command: {self.command}")
-            # Ensure the python executable path maps correctly
+            import sys
+            # On Windows suppress the console pop-up for each MCP subprocess
+            kwargs = {}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
             self.process = await asyncio.create_subprocess_exec(
                 *self.command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                **kwargs
             )
             self._read_task = asyncio.create_task(self._read_stdout_loop())
             self._stderr_task = asyncio.create_task(self._read_stderr_loop())
