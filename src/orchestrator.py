@@ -269,22 +269,22 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         cal_arg = (calendar_tag_match.group(2) or "").strip()
                         logger.info(f"[Orchestrator] Found [{cal_tool_raw}:] trigger in response. Arg: '{cal_arg}'")
                         
-                        # Map tag names to the MCP calendar tool names
+                        # Map tag names to the actual MCP calendar server tool names and arg signatures
                         cal_tool_map = {
-                            "VIEW_UPCOMING_AGENDA": "get_upcoming_events",
-                            "LIST_CALENDAR_EVENTS": "get_upcoming_events",
+                            "VIEW_UPCOMING_AGENDA": "view_upcoming_agenda",
+                            "LIST_CALENDAR_EVENTS": "view_upcoming_agenda",
                             "CREATE_CALENDAR_EVENT": "create_calendar_event",
-                            "VIEW_TODAY_SCHEDULE": "get_upcoming_events",
+                            "VIEW_TODAY_SCHEDULE": "view_upcoming_agenda",
                         }
-                        mcp_tool_name = cal_tool_map.get(cal_tool_raw, "get_upcoming_events")
+                        mcp_tool_name = cal_tool_map.get(cal_tool_raw, "view_upcoming_agenda")
                         
-                        # Build sensible arguments from the tag payload
-                        if mcp_tool_name == "get_upcoming_events":
+                        # Build arguments matching the actual MCP tool signatures
+                        if mcp_tool_name == "view_upcoming_agenda":
                             try:
-                                days = int(cal_arg) if cal_arg.isdigit() else 7
+                                days = int(cal_arg) if cal_arg and cal_arg.isdigit() else 7
                             except Exception:
                                 days = 7
-                            cal_args = {"days": days}
+                            cal_args = {"days_ahead": days}
                         else:
                             cal_args = {"details": cal_arg} if cal_arg else {}
                         

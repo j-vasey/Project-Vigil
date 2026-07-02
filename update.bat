@@ -22,12 +22,15 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-git -C "%ROOT%" pull origin main
+pushd "%ROOT%."
+git pull origin main
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] git pull failed. Check your internet connection and remote URL.
+    popd
     pause
     exit /b 1
 )
+popd
 
 :: ---- 2. Activate venv ----
 if not exist "%VENV%\Scripts\activate.bat" (
