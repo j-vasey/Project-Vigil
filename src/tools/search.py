@@ -68,7 +68,7 @@ async def search_web_tool(query: str, max_results: int = 5) -> str:
     # ── 1. duckduckgo-search (primary) ─────────────────────────────────────
     ddg_results: list[str] = []
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         is_news = _is_news_query(query)
 
         with DDGS() as ddgs:

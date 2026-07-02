@@ -1,4 +1,4 @@
-﻿
+
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.14.1
@@ -9,7 +9,7 @@ charset-normalizer==3.4.7
 click==8.4.2
 colorama==0.4.6
 cryptography==49.0.0
-duckduckgo_search==8.1.1
+ddgs>=0.1.0
 fastapi==0.138.1
 greenlet==3.5.3
 h11==0.16.0
