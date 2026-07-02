@@ -117,21 +117,24 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                 from src.llm import get_llm_client
                 client = get_llm_client(backend=backend, url=url, model=model, num_ctx=num_ctx)
                 
-                # Dual-lane dynamic routing intent classification
+                # Tri-lane dynamic routing intent classification
                 classifier_system = (
                     "You are an orchestrator intent classification routing agent. Your job is to classify the user's prompt "
-                    "into one of two categories: 'SYNC_CHAT' or 'ASYNC_AGENT'.\n\n"
+                    "into one of three categories: 'SYNC_CHAT', 'ASYNC_AGENT', or 'WEB_SEARCH'.\n\n"
+                    "Classify as 'WEB_SEARCH' if the user explicitly asks to look up live information on the internet, "
+                    "search the web, or asks for current events/news that require real-time knowledge.\n"
                     "Classify as 'SYNC_CHAT' if the user's input is standard conversational text, general questions/answers, "
-                    "a request to search or look up past chat/memory history (e.g., 'What did we talk about earlier?', "
+                    "a request to look up past chat/memory history (e.g., 'What did we talk about earlier?', "
                     "'Do you remember X?', 'Look up my habits'), or an immediate status check.\n"
                     "Classify as 'ASYNC_AGENT' if the user's input requires running a heavy multi-step task, background research, "
                     "batch system/file adjustments, network scans/discoveries, VM management, or calendar modifications.\n\n"
-                    "Respond with exactly 'SYNC_CHAT' or 'ASYNC_AGENT'."
+                    "Respond with exactly 'SYNC_CHAT', 'ASYNC_AGENT', or 'WEB_SEARCH'."
                 )
                 classifier_prompt = f"Prompt to classify: {message.message_body}"
                 route_decision = await client.generate_response(prompt=classifier_prompt, system_prompt=classifier_system)
                 
                 use_background = "ASYNC_AGENT" in route_decision.upper()
+                use_web_search = "WEB_SEARCH" in route_decision.upper()
                 
                 if use_background:
                     logger.info(f"[Orchestrator] Routing prompt to BackgroundAgentRunner (ASYNC_AGENT lane): {message.message_body}")
@@ -157,6 +160,28 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         platform=message.platform,
                         user_id=message.user_id,
                         text=start_msg_text.strip()
+                    )
+                elif use_web_search:
+                    logger.info(f"[Orchestrator] Routing prompt to Autonomous Search Pipeline (WEB_SEARCH lane): {message.message_body}")
+                    from src.search_pipeline import run_search_pipeline
+                    
+                    # 1. Provide an immediate typing / searching indicator if possible
+                    # (Here we just execute it inline as a sync response)
+                    search_response = await run_search_pipeline(message.message_body)
+                    
+                    # 2. Save bot message to Database
+                    repo.save_message(
+                        channel=message.platform,
+                        user_id=message.user_id,
+                        sender_type="bot",
+                        text=search_response
+                    )
+                    
+                    # 3. Send response back
+                    await router.send_message(
+                        platform=message.platform,
+                        user_id=message.user_id,
+                        text=search_response
                     )
                 else:
                     logger.info(f"[Orchestrator] Routing prompt to Synchronous SYNC_CHAT Lane: {message.message_body}")
