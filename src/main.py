@@ -103,10 +103,10 @@ def seed_defaults():
             "twilio_auth_token": "",                  # Populated via frontend credentials UI
             "twilio_number": "",                      # Populated via frontend credentials UI
             "llm_num_ctx": "8192",                     # Ollama context size configuration
-            "m365_client_id": "40e854ab-e28d-4f10-9c16-95ffc06cb4e5",
+            "m365_client_id": "",              # Set via the WebUI Settings panel
             "m365_tenant_id": "common",
-            "m365_client_secret": "m365-calendar-app-secret",
-            "m365_redirect_uri": "https://172.16.1.123:8001/api/auth/m365/callback",
+            "m365_client_secret": "",           # Set via the WebUI Settings panel
+            "m365_redirect_uri": "",             # Auto-derived from url_root; override in WebUI if needed
             "m365_access_token": "",
             "m365_refresh_token": "",
             "m365_token_expiry": "",
@@ -253,10 +253,8 @@ def generate_self_signed_cert(cert_path: str = "cert.pem", key_path: str = "key.
     
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Project Vigil"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "172.16.1.123"),
+        x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
     ])
     
     cert = x509.CertificateBuilder().subject_name(
@@ -273,7 +271,6 @@ def generate_self_signed_cert(cert_path: str = "cert.pem", key_path: str = "key.
         datetime.now(timezone.utc) + timedelta(days=365)
     ).add_extension(
         x509.SubjectAlternativeName([
-            x509.IPAddress(ipaddress.ip_address("172.16.1.123")),
             x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
             x509.DNSName("localhost")
         ]),

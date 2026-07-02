@@ -665,9 +665,9 @@ def create_app(router: MessagingRouter) -> FastAPI:
         try:
             repo = MessageRepository(db)
             return {
-                "client_id": repo.get_config("m365_client_id", "40e854ab-e28d-4f10-9c16-95ffc06cb4e5"),
+                "client_id": repo.get_config("m365_client_id", ""),
                 "tenant_id": repo.get_config("m365_tenant_id", "common"),
-                "client_secret": repo.get_config("m365_client_secret", "m365-calendar-app-secret"),
+                "client_secret": repo.get_config("m365_client_secret", ""),
                 "is_authorized": bool(repo.get_config("m365_access_token", "")),
                 "redirect_uri": get_m365_redirect_uri(repo)
             }
@@ -691,7 +691,7 @@ def create_app(router: MessagingRouter) -> FastAPI:
         db = SessionLocal()
         try:
             repo = MessageRepository(db)
-            client_id = repo.get_config("m365_client_id", "40e854ab-e28d-4f10-9c16-95ffc06cb4e5")
+            client_id = repo.get_config("m365_client_id", "")
             tenant_id = repo.get_config("m365_tenant_id", "common")
             
             r_uri = redirect_uri or get_m365_redirect_uri(repo)
@@ -742,9 +742,9 @@ def create_app(router: MessagingRouter) -> FastAPI:
         db = SessionLocal()
         try:
             repo = MessageRepository(db)
-            client_id = repo.get_config("m365_client_id", "40e854ab-e28d-4f10-9c16-95ffc06cb4e5")
+            client_id = repo.get_config("m365_client_id", "")
+            client_secret = repo.get_config("m365_client_secret", "")
             tenant_id = repo.get_config("m365_tenant_id", "common")
-            client_secret = repo.get_config("m365_client_secret", "m365-calendar-app-secret")
             
             import httpx
             from fastapi.responses import HTMLResponse

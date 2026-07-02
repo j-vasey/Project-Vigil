@@ -13,7 +13,7 @@ Project Vigil is a self-hosted, 24/7 proactive AI companion system. Unlike typic
 *   **Contextual Companion Engine**: Enforces companion personalities dynamically in async workers by prepending custom system rules, guides, and user stress/behavioral history logs to all model prompts.
 *   **Inline Memory Recall Tags**: Detects `[RECALL: query]` triggers, executes search commands directly against database tables, and substitutes results inline synchronously.
 *   **ComfyUI Image Pipeline**: Detects `[IMAGE: positive prompt]` templates inside responses (either synchronously or via background tasks), runs ComfyUI workflows, and dispatches generated images alongside text captions.
-*   **Local HTTPS & SSL Auto-Cert**: Generates self-signed certificates with SAN support (`localhost`, `127.0.0.1`, `172.16.1.123`) at startup. Serves both FastAPI and Vite dev server securely over local HTTPS.
+*   **Local HTTPS & SSL Auto-Cert**: Generates self-signed certificates with SAN support (`localhost`, `127.0.0.1`) at startup. Serves both FastAPI and Vite dev server securely over local HTTPS.
 *   **Sleek WebUI Control Plane**: A dark, premium React + Vite dashboard displaying real-time server logging (via SSE), configuration management, proactivity logs, and a manual message dispatch console.
 
 ---
@@ -197,7 +197,7 @@ Project Vigil integrates with Microsoft Graph API using standard OAuth 2.0 Autho
 
 ### 🔌 API Authentication Endpoints
 - **GET `/api/auth/m365/authorize`**: Retrieves the Entra ID authorization redirection link. It resolves the callback URL dynamically based on:
-  1. The custom database config `m365_redirect_uri` (e.g. `https://172.16.1.123:8001/api/auth/m365/callback`).
+  1. The custom database config `m365_redirect_uri` (e.g. `https://127.0.0.1:8003/api/auth/m365/callback`).
   2. The dynamically resolved network LAN IP address and local SSL certificate status (`https` if certificates are present).
 - **GET `/api/auth/m365/callback`**: Direct code redirect receiver. Microsoft redirects the browser here with authorization code credentials. The route handles exchange parameters, updates configurations, and serves a success page.
 - **GET `/api/auth/m365/config`**: Fetches active App Registration client settings (`client_id`, `tenant_id`, `client_secret`, and connection authorization status).

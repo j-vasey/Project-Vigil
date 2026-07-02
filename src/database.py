@@ -119,11 +119,6 @@ def init_db():
                 conn.execute(text("ALTER TABLE agent_job_state ADD COLUMN artifacts TEXT"))
                 logger.info("[Database] Successfully added 'artifacts' column to agent_job_state.")
             
-            # Seed default redirect URI targeting user private network IP over secure HTTPS
-            cursor_uri = conn.execute(text("SELECT value FROM configurations WHERE key='m365_redirect_uri'"))
-            row_uri = cursor_uri.fetchone()
-            if not row_uri or not row_uri[0]:
-                conn.execute(text("INSERT OR REPLACE INTO configurations (key, value) VALUES ('m365_redirect_uri', 'https://172.16.1.123:8001/api/auth/m365/callback')"))
-                logger.info("[Database] Seeded default M365 redirect URI: https://172.16.1.123:8001/api/auth/m365/callback")
+            # m365_redirect_uri is now auto-derived from url_root at runtime; no hardcoded default needed
     except Exception as e:
         logger.error(f"[Database] Error checking/migrating agent_job_state table: {e}")

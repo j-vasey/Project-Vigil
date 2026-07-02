@@ -23,13 +23,13 @@ def db_get_config(key: str, default: str = "") -> str:
     except Exception:
         pass
         
-    # Provide default fallback credentials
+    # Default to empty — credentials must be configured via the WebUI Settings panel
     if key == "m365_client_id":
-        return "40e854ab-e28d-4f10-9c16-95ffc06cb4e5"
+        return ""
     if key == "m365_tenant_id":
         return "common"
     if key == "m365_client_secret":
-        return "m365-calendar-app-secret"
+        return ""
         
     return default
 
