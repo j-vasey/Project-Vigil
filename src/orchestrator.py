@@ -189,12 +189,16 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     dialogue_lines.append("Companion:")
                     prompt = "\n".join(dialogue_lines)
                      
-                    # 4. Generate response with inline memory instructions
+                    # 4. Generate response with inline tool tag instructions
                     inline_system_prompt = (
                         f"{system_prompt}\n\n"
-                        "Memory Guideline: If you need to search or recall previous memories/facts to answer the user's question, "
-                        "you MUST include the tag `[RECALL: search keywords]` in your response text. This will dynamically retrieve the facts.\n"
-                        "Voice Constraint: You are provided with tool data behind the scenes. Never repeat the raw tool output or copy bracketed headers like '[Recalled Memories]:' into your direct speech. Speak only in your natural character voice."
+                        "Tool Tags — use these trigger tags inline in your response text when you need live data:\n"
+                        "  [RECALL: search keywords]  — retrieve facts from your active memory store.\n"
+                        "  [SEARCH: search query]     — perform a live web search.\n"
+                        "  [VIEW_UPCOMING_AGENDA: N]  — fetch the next N days of calendar events (e.g. [VIEW_UPCOMING_AGENDA: 7]).\n"
+                        "  [IMAGE: image description]  — generate and send an image to the user.\n"
+                        "Only use ONE tag per response. After inserting a tag, stop — the system will retrieve the data and let you continue.\n"
+                        "Voice Constraint: Never repeat raw tool output or bracketed headers like '[Recalled Memories]:' in your speech. Speak only in your natural character voice."
                     )
                     response_text = await client.generate_response(prompt=prompt, system_prompt=inline_system_prompt)
                     
@@ -228,6 +232,84 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         second_prompt = "\n".join(second_dialogue)
                         response_text = await client.generate_response(prompt=second_prompt, system_prompt=inline_system_prompt)
                     
+                    # Check for [SEARCH: query] trigger
+                    search_match = re.search(r"\[SEARCH:\s*(.*?)\]", response_text)
+                    if search_match:
+                        search_query = search_match.group(1).strip()
+                        logger.info(f"[Orchestrator] Found [SEARCH:] trigger in response. Query: '{search_query}'")
+                        try:
+                            search_results = await tool_registry.execute("web_search", {"query": search_query})
+                        except Exception as se:
+                            search_results = f"Web search failed: {se}"
+                        
+                        clean_prev = re.sub(r"\[SEARCH:\s*(.*?)\]", "", response_text).strip()
+                        search_dialogue = []
+                        search_dialogue.append(f"System: [Web Search Results for '{search_query}']:\n{search_results}")
+                        for hist_msg in history:
+                            role = "User" if hist_msg.sender_type == "user" else "Companion"
+                            search_dialogue.append(f"{role}: {hist_msg.text}")
+                        if clean_prev:
+                            search_dialogue.append(f"Companion: {clean_prev}")
+                        search_dialogue.append("Companion:")
+                        response_text = await client.generate_response(
+                            prompt="\n".join(search_dialogue),
+                            system_prompt=inline_system_prompt
+                        )
+
+                    # Check for inline calendar / MCP tool trigger tags emitted by the LLM.
+                    # Supported patterns: [VIEW_UPCOMING_AGENDA: N], [LIST_CALENDAR_EVENTS: query],
+                    # [CREATE_CALENDAR_EVENT: details], [VIEW_TODAY_SCHEDULE], etc.
+                    calendar_tag_match = re.search(
+                        r"\[(VIEW_UPCOMING_AGENDA|LIST_CALENDAR_EVENTS|CREATE_CALENDAR_EVENT|VIEW_TODAY_SCHEDULE)(?::\s*(.*?))?\]",
+                        response_text,
+                        re.IGNORECASE
+                    )
+                    if calendar_tag_match:
+                        cal_tool_raw = calendar_tag_match.group(1).upper()
+                        cal_arg = (calendar_tag_match.group(2) or "").strip()
+                        logger.info(f"[Orchestrator] Found [{cal_tool_raw}:] trigger in response. Arg: '{cal_arg}'")
+                        
+                        # Map tag names to the MCP calendar tool names
+                        cal_tool_map = {
+                            "VIEW_UPCOMING_AGENDA": "get_upcoming_events",
+                            "LIST_CALENDAR_EVENTS": "get_upcoming_events",
+                            "CREATE_CALENDAR_EVENT": "create_calendar_event",
+                            "VIEW_TODAY_SCHEDULE": "get_upcoming_events",
+                        }
+                        mcp_tool_name = cal_tool_map.get(cal_tool_raw, "get_upcoming_events")
+                        
+                        # Build sensible arguments from the tag payload
+                        if mcp_tool_name == "get_upcoming_events":
+                            try:
+                                days = int(cal_arg) if cal_arg.isdigit() else 7
+                            except Exception:
+                                days = 7
+                            cal_args = {"days": days}
+                        else:
+                            cal_args = {"details": cal_arg} if cal_arg else {}
+                        
+                        try:
+                            cal_results = await tool_registry.execute(mcp_tool_name, cal_args)
+                        except Exception as ce:
+                            cal_results = f"Calendar tool failed: {ce}"
+                        
+                        clean_prev = re.sub(
+                            r"\[(VIEW_UPCOMING_AGENDA|LIST_CALENDAR_EVENTS|CREATE_CALENDAR_EVENT|VIEW_TODAY_SCHEDULE)(?::\s*(.*?))?\]",
+                            "", response_text, flags=re.IGNORECASE
+                        ).strip()
+                        cal_dialogue = []
+                        cal_dialogue.append(f"System: [Calendar Data Retrieved]:\n{cal_results}")
+                        for hist_msg in history:
+                            role = "User" if hist_msg.sender_type == "user" else "Companion"
+                            cal_dialogue.append(f"{role}: {hist_msg.text}")
+                        if clean_prev:
+                            cal_dialogue.append(f"Companion: {clean_prev}")
+                        cal_dialogue.append("Companion:")
+                        response_text = await client.generate_response(
+                            prompt="\n".join(cal_dialogue),
+                            system_prompt=inline_system_prompt
+                        )
+
                     # Check for [IMAGE: image prompt] trigger
                     image_match = re.search(r"\[IMAGE:\s*(.*?)\]", response_text)
                     
