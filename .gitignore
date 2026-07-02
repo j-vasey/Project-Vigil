@@ -1,0 +1,43 @@
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# PyInstaller build output
+build/
+dist/
+
+# Database files
+*.db
+*.sqlite3
+
+# Log files
+*.log
+logs/
+
+# SSL Certificates & Security keys (CRITICAL: Do not leak secrets!)
+*.pem
+*.key
+secret.key
+
+# Node.js dependencies and production build outputs
+node_modules/
+webui/node_modules/
+webui/dist/
+.eslintcache
+
+# Generated/Test assets and local JSON configurations
+test_generated.png
+goals.json
+todo.json
+
+# IDE settings
+.vscode/
+.idea/

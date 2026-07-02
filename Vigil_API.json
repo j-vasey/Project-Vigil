@@ -1,0 +1,287 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "Il\\waiIllustriousSDXL_v160.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "2": {
+    "inputs": {
+      "seed": [
+        "10",
+        0
+      ],
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "7",
+        0
+      ],
+      "negative": [
+        "8",
+        0
+      ],
+      "latent_image": [
+        "27",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "3": {
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "CLIPSetLastLayer",
+    "_meta": {
+      "title": "CLIP Set Last Layer"
+    }
+  },
+  "5": {
+    "inputs": {
+      "positive": ""
+    },
+    "class_type": "easy positive",
+    "_meta": {
+      "title": "Positive"
+    }
+  },
+  "6": {
+    "inputs": {
+      "negative": ""
+    },
+    "class_type": "easy negative",
+    "_meta": {
+      "title": "Negative"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": [
+        "5",
+        0
+      ],
+      "clip": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "text": [
+        "6",
+        0
+      ],
+      "clip": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "10": {
+    "inputs": {
+      "seed": -1
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed"
+    }
+  },
+  "11": {
+    "inputs": {
+      "Text": "Vigil_API"
+    },
+    "class_type": "DF_Text",
+    "_meta": {
+      "title": "Text"
+    }
+  },
+  "14": {
+    "inputs": {
+      "Text": "API_Drafts\\"
+    },
+    "class_type": "DF_Text",
+    "_meta": {
+      "title": "Folder"
+    }
+  },
+  "15": {
+    "inputs": {
+      "Text": "Original"
+    },
+    "class_type": "DF_Text",
+    "_meta": {
+      "title": "Original name add"
+    }
+  },
+  "17": {
+    "inputs": {
+      "Text": "With Metadata"
+    },
+    "class_type": "DF_Text",
+    "_meta": {
+      "title": "Metadata"
+    }
+  },
+  "18": {
+    "inputs": {
+      "delimiter": " ",
+      "string1": [
+        "11",
+        0
+      ],
+      "string2": [
+        "17",
+        0
+      ]
+    },
+    "class_type": "JoinStrings",
+    "_meta": {
+      "title": "Join Strings"
+    }
+  },
+  "21": {
+    "inputs": {
+      "inputcount": 3,
+      "delimiter": " ",
+      "return_list": false,
+      "Update inputs": null,
+      "string_2": [
+        "11",
+        0
+      ],
+      "string_3": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "JoinStringMulti",
+    "_meta": {
+      "title": "Join String Multi"
+    }
+  },
+  "25": {
+    "inputs": {
+      "inputcount": 3,
+      "delimiter": " ",
+      "return_list": false,
+      "Update inputs": null,
+      "string_1": [
+        "14",
+        0
+      ],
+      "string_2": [
+        "11",
+        0
+      ],
+      "string_3": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "JoinStringMulti",
+    "_meta": {
+      "title": "Join String Multi"
+    }
+  },
+  "26": {
+    "inputs": {
+      "filename_prefix": [
+        "18",
+        0
+      ],
+      "subdirectory_name": "API",
+      "output_format": "png",
+      "quality": "max",
+      "metadata_scope": "full",
+      "include_batch_num": true,
+      "prefer_nearest": true,
+      "images": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "SaveImageWithMetaData",
+    "_meta": {
+      "title": "Save Image With Meta"
+    }
+  },
+  "27": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "28": {
+    "inputs": {
+      "samples": [
+        "2",
+        0
+      ],
+      "vae": [
+        "1",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "29": {
+    "inputs": {
+      "model_name": "2x-AnimeSharpV3.pth"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
+  },
+  "30": {
+    "inputs": {
+      "upscale_model": [
+        "29",
+        0
+      ],
+      "image": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": {
+      "title": "Upscale Image (using Model)"
+    }
+  }
+}
