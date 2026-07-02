@@ -169,7 +169,7 @@ async def web_search(query: str) -> str:
     """
     Perform a live web search using DuckDuckGo or public RSS feeds.
     
-    query: The search terms or questions to look up on the web.
+    query: Strictly keywords only. Strip out conversational timing indicators like 'later this week', 'today', or 'game'. Example input: 'England vs Mexico World Cup 2026'.
     """
     query_lower = query.lower()
     

@@ -64,32 +64,51 @@ async def search_web_tool(query: str, max_results: int = 5) -> str:
     Falls back gracefully if all providers fail.
     """
     query = query.strip()
+    logger.info(f"[Search Tool DEBUG] Raw Query requested by model: '{query}'")
 
     # ── 1. duckduckgo-search (primary) ─────────────────────────────────────
     ddg_results: list[str] = []
-    try:
-        from ddgs import DDGS
-        is_news = _is_news_query(query)
+    
+    def run_ddgs_search(q: str):
+        results = []
+        try:
+            from ddgs import DDGS
+            is_news = _is_news_query(q)
+            with DDGS() as ddgs:
+                if is_news:
+                    logger.info(f"[Search Tool] DDG news search: '{q}'")
+                    raw = list(ddgs.news(q, max_results=max_results))
+                    for r in raw:
+                        title = r.get("title", "")
+                        url = r.get("url", "")
+                        body = r.get("body", "")
+                        results.append(f"Title: {title}\nURL: {url}\nSnippet: {body}")
+                else:
+                    logger.info(f"[Search Tool] DDG text search: '{q}'")
+                    raw = list(ddgs.text(q, max_results=max_results))
+                    for r in raw:
+                        title = r.get("title", "")
+                        url = r.get("href", "")
+                        body = r.get("body", "")
+                        results.append(f"Title: {title}\nURL: {url}\nSnippet: {body}")
+        except Exception as e:
+            logger.warning(f"[Search Tool] DDGS failed for query '{q}': {e}")
+        return results
 
-        with DDGS() as ddgs:
-            if is_news:
-                logger.info(f"[Search Tool] DDG news search: '{query}'")
-                raw = list(ddgs.news(query, max_results=max_results))
-                for r in raw:
-                    title = r.get("title", "")
-                    url = r.get("url", "")
-                    body = r.get("body", "")
-                    ddg_results.append(f"Title: {title}\nURL: {url}\nSnippet: {body}")
-            else:
-                logger.info(f"[Search Tool] DDG text search: '{query}'")
-                raw = list(ddgs.text(query, max_results=max_results))
-                for r in raw:
-                    title = r.get("title", "")
-                    url = r.get("href", "")
-                    body = r.get("body", "")
-                    ddg_results.append(f"Title: {title}\nURL: {url}\nSnippet: {body}")
-    except Exception as e:
-        logger.warning(f"[Search Tool] DDGS failed: {e}")
+    ddg_results = run_ddgs_search(query)
+    
+    # ── 1.5 Fallback Search Query Generator ────────────────────────────────
+    if not ddg_results:
+        import re
+        # Remove conversational noise and time indicators
+        stop_words = r"\b(today|tomorrow|yesterday|later|this|week|month|year|game|match|fixture|show|me|tell|find|search|about|what|when|where|who|why|how|is|are|the|a|an|in|on|at|to|for|with)\b"
+        cleaned_query = re.sub(stop_words, "", query, flags=re.IGNORECASE)
+        # Clean up multiple spaces
+        cleaned_query = re.sub(r"\s+", " ", cleaned_query).strip()
+        
+        if cleaned_query and cleaned_query.lower() != query.lower():
+            logger.info(f"[Search Tool DEBUG] Primary search returned 0 results. Fallback triggered with cleaned query: '{cleaned_query}'")
+            ddg_results = run_ddgs_search(cleaned_query)
 
     # ── 2. BBC RSS enrichment for news queries ──────────────────────────────
     rss_results: list[str] = []
@@ -115,8 +134,15 @@ async def search_web_tool(query: str, max_results: int = 5) -> str:
             break
 
     if combined:
-        logger.info(f"[Search Tool] Returning {len(combined)} results for '{query}'")
-        return "\n\n".join(combined)
+        final_payload = "\n\n".join(combined)
+        # Truncate to roughly 1,500 words
+        words = final_payload.split()
+        if len(words) > 1500:
+            final_payload = " ".join(words[:1500]) + "\n...[TRUNCATED TO 1500 WORDS]"
+            
+        logger.info(f"[Search Tool DEBUG] Returning {len(combined)} results. Exact Text Payload length: {len(final_payload)} chars.")
+        logger.info(f"[Search Tool DEBUG] EXACT PAYLOAD RETURNED:\n{final_payload}")
+        return final_payload
 
     logger.warning(f"[Search Tool] All search providers returned no results for '{query}'")
     return (
