@@ -141,7 +141,7 @@ class OllamaClient(BaseLLMClient):
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "stream": False,
+                "stream": True,
                 "tools": tools,
                 "options": {
                     "num_ctx": self.num_ctx
@@ -149,26 +149,53 @@ class OllamaClient(BaseLLMClient):
             }
             logger.info(f"[Ollama Client] Sending chat request (iteration {iteration+1}, model '{self.model}') to {url}...")
             try:
+                import json
                 async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=payload, timeout=300.0)
-                    if response.status_code != 200:
-                        err_msg = f"Ollama API error {response.status_code}: {response.text}"
-                        logger.error(err_msg)
-                        return f"[Ollama Backend Error] Status {response.status_code}"
+                    async with client.stream("POST", url, json=payload, timeout=300.0) as response:
+                        if response.status_code != 200:
+                            await response.aread()
+                            err_msg = f"Ollama API error {response.status_code}: {response.text}"
+                            logger.error(err_msg)
+                            return f"[Ollama Backend Error] Status {response.status_code}"
+                            
+                        full_content = ""
+                        tool_calls = []
                         
-                    data = response.json()
-                    assistant_message = data.get("message", {})
-                    content = assistant_message.get("content", "")
-                    if content:
-                        accumulated_contents.append(content.strip())
+                        print(f"[Ollama Generating (Iter {iteration+1})]: ", end="", flush=True)
                         
-                    tool_calls = assistant_message.get("tool_calls", [])
-                    
+                        async for line in response.aiter_lines():
+                            if not line.strip():
+                                continue
+                            try:
+                                data = json.loads(line)
+                                assistant_message = data.get("message", {})
+                                
+                                # Extract content chunks and print dots
+                                chunk = assistant_message.get("content", "")
+                                if chunk:
+                                    full_content += chunk
+                                    print(".", end="", flush=True)
+                                    
+                                # Capture tool calls (usually sent in the final chunk)
+                                if "tool_calls" in assistant_message and assistant_message["tool_calls"]:
+                                    tool_calls = assistant_message["tool_calls"]
+                            except json.JSONDecodeError:
+                                pass
+                                
+                        print(" [Done]", flush=True)
+                        
+                    if full_content:
+                        accumulated_contents.append(full_content.strip())
+                        
                     if not tool_calls:
-                        return assistant_message.get("content", "").strip()
+                        return full_content.strip()
                         
                     # Append assistant tool call message to history
-                    messages.append(assistant_message)
+                    messages.append({
+                        "role": "assistant",
+                        "content": full_content,
+                        "tool_calls": tool_calls
+                    })
                     logger.info(f"[Ollama Client] Model requested tool calls: {tool_calls}")
                     
                     for tool_call in tool_calls:
