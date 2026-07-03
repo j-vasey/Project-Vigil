@@ -6,7 +6,14 @@ from src.mcp.servers.base import MCPServer
 
 server = MCPServer("server-active-memory")
 
+db_initialized = False
+
 def get_db_connection():
+    global db_initialized
+    if not db_initialized:
+        from src.database import init_db
+        init_db()
+        db_initialized = True
     from src.database import DB_PATH
     return sqlite3.connect(DB_PATH)
 

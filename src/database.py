@@ -113,12 +113,19 @@ def init_db():
     try:
         from sqlalchemy import text
         with engine.begin() as conn:
-            cursor = conn.execute(text("PRAGMA table_info(agent_job_state)"))
-            columns = [row[1] for row in cursor.fetchall()]
-            if "artifacts" not in columns:
-                conn.execute(text("ALTER TABLE agent_job_state ADD COLUMN artifacts TEXT"))
-                logger.info("[Database] Successfully added 'artifacts' column to agent_job_state.")
-            
-            # m365_redirect_uri is now auto-derived from url_root at runtime; no hardcoded default needed
+            for table_name, table in Base.metadata.tables.items():
+                cursor = conn.execute(text(f"PRAGMA table_info({table_name})"))
+                existing_columns = {row[1] for row in cursor.fetchall()}
+                
+                if existing_columns: # Table exists
+                    for column in table.columns:
+                        if column.name not in existing_columns:
+                            # Compile column type for SQLite dialect
+                            col_type = str(column.type.compile(engine.dialect))
+                            try:
+                                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}"))
+                                logger.info(f"[Database] Successfully added '{column.name}' column to {table_name}.")
+                            except Exception as col_e:
+                                logger.error(f"[Database] Failed to add column '{column.name}' to {table_name}: {col_e}")
     except Exception as e:
-        logger.error(f"[Database] Error checking/migrating agent_job_state table: {e}")
+        logger.error(f"[Database] Error running dynamic schema migrations: {e}")
