@@ -11,11 +11,14 @@ _NEWS_RSS_FEEDS = {
     "science": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
     "business": "https://feeds.bbci.co.uk/news/business/rss.xml",
     "sport": "https://feeds.bbci.co.uk/news/sport/rss.xml",
+    "football": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+    "cricket": "https://feeds.bbci.co.uk/sport/cricket/rss.xml",
     "health": "https://feeds.bbci.co.uk/news/health/rss.xml",
     "default": "https://feeds.bbci.co.uk/news/rss.xml",
 }
 
 _NEWS_KEYWORDS = {"news", "headline", "breaking", "latest", "current event", "world event", "today"}
+_SPORT_KEYWORDS = {"match", "fixture", "score", "goal", "result", "vs", "versus", "game", "league", "cup", "tournament", "kick-off", "kickoff"}
 
 
 def _is_news_query(query: str) -> bool:
@@ -23,11 +26,19 @@ def _is_news_query(query: str) -> bool:
     return any(w in q for w in _NEWS_KEYWORDS)
 
 
+def _is_sport_query(query: str) -> bool:
+    q = query.lower()
+    return any(w in q for w in _SPORT_KEYWORDS)
+
+
 def _pick_rss_feed(query: str) -> str:
     q = query.lower()
     for keyword, url in _NEWS_RSS_FEEDS.items():
         if keyword != "default" and keyword in q:
             return url
+    # Sports fixture/result queries get the general sport feed
+    if _is_sport_query(query):
+        return _NEWS_RSS_FEEDS["sport"]
     return _NEWS_RSS_FEEDS["default"]
 
 
@@ -56,17 +67,18 @@ async def _fetch_rss(feed_url: str, max_items: int = 5) -> list[str]:
     return results
 
 
-async def search_web_tool(query: str, max_results: int = 5) -> str:
+async def search_web_tool(query: str, max_results: int = 8) -> str:
     """
     Perform a web search using duckduckgo-search (DDGS).
 
     For news/headline queries, enriches results with a live BBC RSS feed.
     Falls back gracefully if all providers fail.
     """
+    import asyncio
     query = query.strip()
     logger.info(f"[Search Tool DEBUG] Raw Query requested by model: '{query}'")
 
-    # ── 1. duckduckgo-search (primary) ─────────────────────────────────────
+    # ── 1. duckduckgo-search (primary) — run in thread to avoid blocking event loop ─
     ddg_results: list[str] = []
     
     def run_ddgs_search(q: str):
@@ -95,7 +107,8 @@ async def search_web_tool(query: str, max_results: int = 5) -> str:
             logger.warning(f"[Search Tool] DDGS failed for query '{q}': {e}")
         return results
 
-    ddg_results = run_ddgs_search(query)
+    # Run the blocking DDGS call in a thread so we don't stall the asyncio event loop
+    ddg_results = await asyncio.to_thread(run_ddgs_search, query)
     
     # ── 1.5 Fallback Search Query Generator ────────────────────────────────
     if not ddg_results:
@@ -108,11 +121,11 @@ async def search_web_tool(query: str, max_results: int = 5) -> str:
         
         if cleaned_query and cleaned_query.lower() != query.lower():
             logger.info(f"[Search Tool DEBUG] Primary search returned 0 results. Fallback triggered with cleaned query: '{cleaned_query}'")
-            ddg_results = run_ddgs_search(cleaned_query)
+            ddg_results = await asyncio.to_thread(run_ddgs_search, cleaned_query)
 
-    # ── 2. BBC RSS enrichment for news queries ──────────────────────────────
+    # ── 2. RSS enrichment for news and sport queries ────────────────────────
     rss_results: list[str] = []
-    if _is_news_query(query):
+    if _is_news_query(query) or _is_sport_query(query):
         try:
             feed_url = _pick_rss_feed(query)
             logger.info(f"[Search Tool] Fetching RSS feed: {feed_url}")

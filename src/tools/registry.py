@@ -38,16 +38,21 @@ class ToolRegistry:
             for status in mcp_manager.get_status():
                 server_name = status["name"]
                 for tool in status["tools"]:
+                    # Sanitise MCP input schema — Gemma4 is strict about schema keys.
+                    # Only allow type/properties/required; drop any extras like additionalProperties.
+                    raw_schema = tool.get("inputSchema", {"type": "object", "properties": {}, "required": []})
+                    clean_schema = {
+                        "type": raw_schema.get("type", "object"),
+                        "properties": raw_schema.get("properties", {}),
+                    }
+                    if "required" in raw_schema:
+                        clean_schema["required"] = raw_schema["required"]
                     schemas.append({
                         "type": "function",
                         "function": {
                             "name": tool["name"],
                             "description": f"[MCP: {server_name}] {tool.get('description', '')}",
-                            "parameters": tool.get("inputSchema", {
-                                "type": "object",
-                                "properties": {},
-                                "required": []
-                            })
+                            "parameters": clean_schema
                         }
                     })
         except Exception as e:
@@ -167,9 +172,9 @@ tool_registry = ToolRegistry()
 @tool_registry.register
 async def web_search(query: str) -> str:
     """
-    Perform a live web search using DuckDuckGo or public RSS feeds.
-    
-    query: Strictly keywords only. Strip out conversational timing indicators like 'later this week', 'today', or 'game'. Example input: 'England vs Mexico World Cup 2026'.
+    Search the internet for live, factual, or current-events information. Only call this tool when the user explicitly asks you to look something up online, search the web, or asks about real-time data (scores, news, weather, prices). Do NOT call for casual conversation or questions you already know the answer to.
+
+    query: Strictly 3-5 keywords only. No conversational phrasing, no relative time words like 'today' or 'this week'. Example: 'England Mexico World Cup 2026 schedule'.
     """
     query_lower = query.lower()
     
@@ -235,7 +240,7 @@ async def _run_ps_command(cmd: str) -> tuple[int, str, str]:
 @tool_registry.register
 async def get_system_metrics() -> str:
     """
-    Retrieve current host CPU, RAM, and Disk logical storage usage metrics.
+    Get current CPU usage percentage, total and free RAM, and C: drive disk space from the local Windows host. Call this when the user asks about system performance, memory, or storage.
     """
     logger.info("[ToolRegistry] Fetching host system metrics...")
     
@@ -293,11 +298,11 @@ async def manage_hyperv_vm(
     computer_name: str = ""
 ) -> str:
     """
-    Control or query a local or remote Hyper-V Virtual Machine on the network.
-    
-    vm_name: The target virtual machine name (must be alphanumeric/hyphens/underscores).
-    action: The action to perform (must be 'start', 'stop', or 'status').
-    computer_name: Optional host name or IP address of the remote Hyper-V host computer.
+    Start, stop, or get the status of a Hyper-V virtual machine on this host or a remote host.
+
+    vm_name: The exact name of the virtual machine (alphanumeric, hyphens, underscores, spaces).
+    action: Action to perform — 'start', 'stop', or 'status'.
+    computer_name: Optional. Remote Hyper-V host name or IP. Leave empty for local host.
     """
     # 1. Rigorous input validation to prevent command injection
     if not re.match(r"^[a-zA-Z0-9_\- ]+$", vm_name):
@@ -364,9 +369,9 @@ def _load_db_config(key: str, default_val: str = "") -> str:
 @tool_registry.register
 async def discover_local_infrastructure(subnet: str = "") -> str:
     """
-    Scan a local subnet range to discover online hosts and open management ports.
-    
-    subnet: Optional subnet prefix (e.g. '192.168.1.'). If omitted, resolves local host IP prefix.
+    Scan the local network subnet to find online hosts and detect open management ports (SSH 22, WinRM 5985, RDP 3389). Use when the user asks to discover or map their home or office network.
+
+    subnet: Optional subnet prefix (e.g. '192.168.1.'). Leave empty to auto-detect from local IP.
     """
     # 1. Resolve local prefix if subnet parameter is omitted
     prefix = subnet.strip()
@@ -443,11 +448,11 @@ async def discover_local_infrastructure(subnet: str = "") -> str:
 @tool_registry.register
 async def execute_linux_bsd_command(ip_address: str, command: str, ssh_key_path: str = "") -> str:
     """
-    Execute a diagnostic command natively on a Linux/BSD node over SSH.
-    
-    ip_address: Target IP address of the Linux/BSD machine.
-    command: The diagnostic command to run (uptime, free, df, top, uname, netstat, ss, systemctl, service).
-    ssh_key_path: Optional path to the SSH certificate/private key file to use.
+    Run a read-only diagnostic command on a Linux or BSD machine over SSH. Only call when the user asks to check a specific Linux/BSD host's status.
+
+    ip_address: IP address of the target Linux/BSD machine.
+    command: The command to run. Allowed: uptime, free, df, top, uname, netstat, ss, systemctl, service.
+    ssh_key_path: Optional path to the SSH private key file.
     """
     # 1. IP validation
     if not re.match(r"^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$", ip_address):
@@ -539,10 +544,10 @@ async def execute_linux_bsd_command(ip_address: str, command: str, ssh_key_path:
 @tool_registry.register
 async def execute_windows_command(ip_address: str, powershell_script: str) -> str:
     """
-    Execute diagnostic/telemetry cmdlets on a Windows Server node over WinRM.
-    
-    ip_address: Target IP address of the Windows Server host.
-    powershell_script: The diagnostic cmdlet to run (get-service, get-process, get-eventlog, get-content, get-vm).
+    Run a read-only diagnostic PowerShell cmdlet on a remote Windows Server over WinRM. Only call when the user asks to check a specific Windows host's status.
+
+    ip_address: IP address of the target Windows Server host.
+    powershell_script: PowerShell cmdlet to run. Allowed: get-service, get-process, get-eventlog, get-content, get-vm.
     """
     # 1. IP validation
     if not re.match(r"^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$", ip_address):

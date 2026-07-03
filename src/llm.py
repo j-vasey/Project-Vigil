@@ -137,14 +137,18 @@ class OllamaClient(BaseLLMClient):
         last_tool_args = None
         accumulated_contents = []
         
-        for iteration in range(3):
+        import re as _re
+        for iteration in range(5):
             payload = {
                 "model": self.model,
                 "messages": messages,
                 "stream": True,
                 "tools": tools,
                 "options": {
-                    "num_ctx": self.num_ctx
+                    "num_ctx": self.num_ctx,
+                    # Disable Gemma4 thinking mode when tools are present to prevent
+                    # <think> block deadlocks and tool_call parsing failures
+                    "think": False if tools else True
                 }
             }
             logger.info(f"[Ollama Client] Sending chat request (iteration {iteration+1}, model '{self.model}') to {url}...")
@@ -184,6 +188,11 @@ class OllamaClient(BaseLLMClient):
                                 
                         print(" [Done]", flush=True)
                         
+                        # Strip Gemma4 <think>...</think> reasoning blocks from content.
+                        # These must never pollute the assistant message payload sent back
+                        # into the message history or the tool call loop will break.
+                        full_content = _re.sub(r"<think>.*?</think>", "", full_content, flags=_re.DOTALL).strip()
+                        
                     if full_content:
                         accumulated_contents.append(full_content.strip())
                         
@@ -215,6 +224,8 @@ class OllamaClient(BaseLLMClient):
                         messages.append({
                             "role": "tool",
                             "name": func_name,
+                            # Pass tool_call_id so Gemma4 can correlate results with its call
+                            "tool_call_id": tool_call.get("id", func_name),
                             "content": str(tool_result)
                         })
                             
