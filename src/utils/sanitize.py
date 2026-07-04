@@ -21,7 +21,8 @@ def sanitize_agent_output(raw_text: str) -> str:
         extracted = match.group(1).strip()
     else:
         # If no explicit "Response:" marker, strip thought/Plan blocks individually if they exist
-        cleaned = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r"</?think>", "", cleaned, flags=re.IGNORECASE) # Strip orphaned tags
         cleaned = re.sub(r"\bthought\s*:\s*.*?\n\n", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"\bthought\s*\n.*?\n\n", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"\bthought\b.*?\n\n", "", cleaned, flags=re.DOTALL | re.IGNORECASE)

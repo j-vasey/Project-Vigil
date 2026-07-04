@@ -34,14 +34,23 @@ async def extract_and_store_memories(user_message: str, repo: MessageRepository)
         
         # Attempt to parse JSON from the response
         try:
-            # Strip potential markdown code blocks
-            clean_resp = response.strip()
-            if clean_resp.startswith("```json"):
-                clean_resp = clean_resp[7:]
-            if clean_resp.startswith("```"):
-                clean_resp = clean_resp[3:]
-            if clean_resp.endswith("```"):
-                clean_resp = clean_resp[:-3]
+            import re
+            # Strip <think> blocks
+            clean_resp = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL | re.IGNORECASE)
+            clean_resp = re.sub(r"</think>", "", clean_resp, flags=re.IGNORECASE).strip()
+
+            # Attempt to extract JSON array using regex
+            json_match = re.search(r"\[\s*\{.*?\}\s*\]", clean_resp, flags=re.DOTALL)
+            if json_match:
+                clean_resp = json_match.group(0)
+            else:
+                # Fallback to markdown code block stripping
+                if clean_resp.startswith("```json"):
+                    clean_resp = clean_resp[7:]
+                if clean_resp.startswith("```"):
+                    clean_resp = clean_resp[3:]
+                if clean_resp.endswith("```"):
+                    clean_resp = clean_resp[:-3]
                 
             clean_resp = clean_resp.strip()
             if not clean_resp or clean_resp == "[]":
