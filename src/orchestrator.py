@@ -97,6 +97,57 @@ async def start_queue_worker(router: MessagingRouter) -> None:
     from src.agent_runner import BackgroundAgentRunner
     runner = BackgroundAgentRunner(router)
     
+    async def run_summarizer(channel: str, user_id: str, repo: MessageRepository):
+        unsummarised = repo.get_unsummarised_window(channel, user_id, batch_size=20)
+        if not unsummarised:
+            return
+            
+        logger.info(f"[Orchestrator] Summarising {len(unsummarised)} old messages for {user_id}...")
+        
+        # Build text to summarize
+        dialogue = []
+        for m in unsummarised:
+            role = "User" if m.sender_type == "user" else "Companion"
+            dialogue.append(f"{role}: {m.text}")
+            
+        prompt = (
+            "Summarize the following chunk of conversation into a concise, factual paragraph. "
+            "Focus on what was discussed, any decisions made, or facts revealed. "
+            "Do NOT output a transcript, just a high-level summary.\n\n"
+            + "\n".join(dialogue)
+        )
+        
+        backend = repo.get_config("llm_backend", "mock")
+        url = repo.get_config("llm_url", "http://localhost:11434")
+        model = repo.get_config("llm_model", "gemma:4")
+        
+        client = get_llm_client(backend=backend, url=url, model=model)
+        try:
+            summary = await client.generate_response(prompt=prompt, system_prompt="You are a helpful compression agent.")
+            
+            # Get previous summary to combine if it exists
+            prev_sum = repo.get_latest_conversation_summary(channel, user_id)
+            if prev_sum:
+                combine_prompt = (
+                    "Combine the following two chronological conversation summaries into one cohesive, concise summary paragraph. "
+                    "Keep it strictly under 3 sentences.\n\n"
+                    f"Previous summary: {prev_sum.summary_text}\n\n"
+                    f"New summary: {summary}"
+                )
+                summary = await client.generate_response(prompt=combine_prompt, system_prompt="You are a helpful compression agent.")
+                
+            repo.save_conversation_summary(
+                channel=channel, 
+                user_id=user_id, 
+                summary=summary.strip(), 
+                from_id=unsummarised[0].id, 
+                to_id=unsummarised[-1].id
+            )
+            logger.info("[Orchestrator] Summarization complete.")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Summarization failed: {e}")
+
+    
     while True:
         try:
             message: InboundMessage = await get_queue().get()
@@ -235,14 +286,21 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     history = repo.get_sliding_window_history(
                         channel=message.platform,
                         user_id=message.user_id,
-                        limit=10
+                        limit=10,
+                        max_tokens=3000
                      )
+                     
+                    # 2.5 Retrieve long-term summary
+                    long_term_summary = repo.get_latest_conversation_summary(message.platform, message.user_id)
                      
                     # 3. Construct prompt
                     dialogue_lines = []
                     # Strictly injected as an independent message object with a role of system
                     if recalled_context and "No memories found" not in recalled_context:
                         dialogue_lines.append(f"System: [Retrieved Memory Context]\n{recalled_context}")
+                        
+                    if long_term_summary:
+                        dialogue_lines.append(f"System: [Previous Conversation Summary]\n{long_term_summary.summary_text}")
                         
                     for hist_msg in history:
                         role = "User" if hist_msg.sender_type == "user" else "Companion"
@@ -256,12 +314,14 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         "=== TOOL ACCESS ===\n"
                         "You have access to the following tools. Use them whenever you need live data:\n"
                         "  • web_search(query)            — live web / news search\n"
+                        "  • get_weather(location)        — live weather forecast\n"
                         "  • view_upcoming_agenda(days_ahead) — fetch upcoming calendar events\n"
                         "  • recall_memories(query_string) — retrieve stored personal facts\n"
                         "  • get_system_metrics()         — host CPU/RAM/disk usage\n"
                         "PREFERRED: invoke tools natively if your runtime supports it.\n"
                         "FALLBACK: if native tool calls are unavailable, embed ONE trigger tag in your reply:\n"
                         "  [SEARCH: your query here]\n"
+                        "  [WEATHER: city name]\n"
                         "  [VIEW_UPCOMING_AGENDA: 7]\n"
                         "  [RECALL: keywords]\n"
                         "  [IMAGE: description]\n"
@@ -322,6 +382,30 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         search_dialogue.append("Companion:")
                         response_text = await client.generate_response(
                             prompt="\n".join(search_dialogue),
+                            system_prompt=inline_system_prompt
+                        )
+
+                    # Check for [WEATHER: location] trigger
+                    weather_match = re.search(r"\[WEATHER:\s*(.*?)\]", response_text, re.IGNORECASE)
+                    if weather_match:
+                        weather_loc = weather_match.group(1).strip()
+                        logger.info(f"[Orchestrator] Found [WEATHER:] trigger in response. Location: '{weather_loc}'")
+                        try:
+                            weather_results = await tool_registry.execute("get_weather", {"location": weather_loc})
+                        except Exception as we:
+                            weather_results = f"Weather lookup failed: {we}"
+                        
+                        clean_prev = re.sub(r"\[WEATHER:\s*(.*?)\]", "", response_text, flags=re.IGNORECASE).strip()
+                        weather_dialogue = []
+                        weather_dialogue.append(f"System: [Weather Data Retrieved]:\n{weather_results}")
+                        for hist_msg in history:
+                            role = "User" if hist_msg.sender_type == "user" else "Companion"
+                            weather_dialogue.append(f"{role}: {hist_msg.text}")
+                        if clean_prev:
+                            weather_dialogue.append(f"Companion: {clean_prev}")
+                        weather_dialogue.append("Companion:")
+                        response_text = await client.generate_response(
+                            prompt="\n".join(weather_dialogue),
                             system_prompt=inline_system_prompt
                         )
 
@@ -433,6 +517,12 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                             user_id=message.user_id,
                             text=response_text
                         )
+                        # 6. Trigger background summarizer check
+                    asyncio.create_task(run_summarizer(message.platform, message.user_id, repo))
+                    
+                    # 7. Trigger background memory extraction
+                    from src.memory_extractor import extract_and_store_memories
+                    asyncio.create_task(extract_and_store_memories(message.text, repo))
                 
             except Exception as ex:
                 logger.exception(f"[Orchestrator] Database transaction error in queue worker: {ex}")

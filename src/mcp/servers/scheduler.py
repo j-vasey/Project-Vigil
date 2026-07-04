@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.mcp.servers.base import MCPServer
 
 server = MCPServer("server-scheduler")
@@ -101,7 +101,7 @@ async def modify_schedule(
     }
 )
 async def pause_proactivity_window(duration_minutes: int) -> str:
-    paused_until = datetime.utcnow() + timedelta(minutes=duration_minutes)
+    paused_until = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
     paused_until_iso = paused_until.isoformat()
     db_set_config("proactivity_paused_until", paused_until_iso)
     return f"Success: Outbound outreach engine paused temporarily until {paused_until_iso} UTC."

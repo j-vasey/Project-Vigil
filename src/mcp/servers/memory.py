@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from src.mcp.servers.base import MCPServer
 
 server = MCPServer("server-active-memory")
@@ -71,7 +71,7 @@ async def upsert_memory(fact_string: str, category: str) -> str:
         cursor.execute("SELECT id FROM active_memories WHERE fact=? AND category=?", (fact_string, category))
         row = cursor.fetchone()
         
-        timestamp_str = datetime.utcnow().isoformat()
+        timestamp_str = datetime.now(timezone.utc).isoformat()
         if row:
             # Already exists, just update timestamp
             cursor.execute("UPDATE active_memories SET timestamp=? WHERE id=?", (timestamp_str, row[0]))
@@ -171,7 +171,7 @@ async def analyze_user_behavioral_trends() -> str:
                 cursor.execute("SELECT id FROM active_memories WHERE fact=? AND category=?", (fact, "user_habit"))
                 if not cursor.fetchone():
                     cursor.execute("INSERT INTO active_memories (fact, category, timestamp) VALUES (?, ?, ?)", 
-                                   (fact, "user_habit", datetime.utcnow().isoformat()))
+                                   (fact, "user_habit", datetime.now(timezone.utc).isoformat()))
                     conn.commit()
                 conn.close()
             except Exception:

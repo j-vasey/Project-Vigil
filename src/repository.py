@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session
-from src.database import Conversation, Configuration, ProactivityLog, ActiveMemory, AgentJobState, UserTrendLog
+from src.database import Conversation, Configuration, ProactivityLog, ActiveMemory, AgentJobState, UserTrendLog, ConversationSummary
 
 class MessageRepository:
     """
@@ -30,17 +30,21 @@ class MessageRepository:
             user_id=user_id,
             sender_type=sender_type.lower(),
             text=text,
-            timestamp=timestamp or datetime.utcnow()
+            timestamp=timestamp or datetime.now(timezone.utc)
         )
         self.db.add(db_msg)
         self.db.commit()
         self.db.refresh(db_msg)
         return db_msg
 
-    def get_sliding_window_history(self, channel: str, user_id: str, limit: int = 10) -> List[Conversation]:
+    def get_sliding_window_history(
+        self, channel: str, user_id: str, limit: int = 10, max_tokens: int = 3000
+    ) -> List[Conversation]:
         """
         Retrieves the last N messages for the user globally across all configured channels,
         ordered chronologically (ascending).
+        Applies a token-budget guard (estimating 1 token ≈ 4 chars) so a single large LLM
+        response cannot silently overflow the model's context window.
         """
         tg_id = self.get_config("telegram_user_id", "")
         ds_id = self.get_config("discord_user_id", "")
@@ -69,7 +73,56 @@ class MessageRepository:
             .order_by(Conversation.timestamp.desc())\
             .limit(limit)\
             .all()
-        return history[::-1]
+        history = history[::-1]  # chronological order
+
+        # Token budget guard: walk newest→oldest, include until budget exhausted
+        if max_tokens and max_tokens > 0:
+            budget = max_tokens
+            kept = []
+            for msg in reversed(history):
+                estimated = max(1, len(msg.text) // 4)
+                if budget - estimated < 0:
+                    break
+                budget -= estimated
+                kept.append(msg)
+            history = list(reversed(kept))
+
+        return history
+
+    def get_latest_conversation_summary(self, channel: str, user_id: str) -> Optional[ConversationSummary]:
+        """Gets the most recent conversation summary for this user/channel."""
+        return self.db.query(ConversationSummary)\
+            .filter(ConversationSummary.channel == channel.lower(), ConversationSummary.user_id == user_id)\
+            .order_by(ConversationSummary.covering_to.desc())\
+            .first()
+
+    def get_unsummarised_window(self, channel: str, user_id: str, batch_size: int = 20) -> List[Conversation]:
+        """
+        Gets the oldest batch of unsummarised messages if there are enough.
+        """
+        last_summary = self.get_latest_conversation_summary(channel, user_id)
+        last_id = last_summary.covering_to if last_summary else 0
+        
+        msgs = self.db.query(Conversation)\
+            .filter(Conversation.channel == channel.lower(), Conversation.user_id == user_id, Conversation.id > last_id)\
+            .order_by(Conversation.id.asc())\
+            .limit(batch_size)\
+            .all()
+            
+        if len(msgs) >= batch_size:
+            return msgs
+        return []
+        
+    def save_conversation_summary(self, channel: str, user_id: str, summary: str, from_id: int, to_id: int):
+        new_summary = ConversationSummary(
+            channel=channel.lower(),
+            user_id=user_id,
+            summary_text=summary,
+            covering_from=from_id,
+            covering_to=to_id
+        )
+        self.db.add(new_summary)
+        self.db.commit()
 
     # --- Configurations ---
     def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
@@ -144,7 +197,7 @@ class MessageRepository:
         log_entry = ProactivityLog(
             reason_code=reason_code,
             message_dispatched=message_dispatched,
-            execution_time=execution_time or datetime.utcnow()
+            execution_time=execution_time or datetime.now(timezone.utc)
         )
         self.db.add(log_entry)
         self.db.commit()
@@ -180,13 +233,13 @@ class MessageRepository:
             if memory:
                 memory.fact = fact
                 memory.category = category
-                memory.timestamp = datetime.utcnow()
+                memory.timestamp = datetime.now(timezone.utc)
                 self.db.commit()
                 self.db.refresh(memory)
                 return memory
                 
         # Create new
-        memory = ActiveMemory(fact=fact, category=category, timestamp=datetime.utcnow())
+        memory = ActiveMemory(fact=fact, category=category, timestamp=datetime.now(timezone.utc))
         self.db.add(memory)
         self.db.commit()
         self.db.refresh(memory)
@@ -218,7 +271,7 @@ class MessageRepository:
         job.step_count = step_count
         if artifacts_json is not None:
             job.artifacts = artifacts_json
-        job.last_update = datetime.utcnow()
+        job.last_update = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(job)
         return job
@@ -235,7 +288,7 @@ class MessageRepository:
         Log user meta-metrics for behavioral analysis.
         """
         log = UserTrendLog(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             stress_level=stress_level,
             topics=topics,
             user_message=user_message

@@ -53,6 +53,17 @@ async def _resolve_inline_tags(text: str, repo: MessageRepository) -> tuple[str,
         clean = re.sub(r"\[SEARCH:\s*(.*?)\]", "", text).strip()
         return clean, f"[Web Search Results for '{query}']:\n{result}"
 
+    # [WEATHER: location]
+    m = re.search(r"\[WEATHER:\s*(.*?)\]", text, re.IGNORECASE)
+    if m:
+        query = m.group(1).strip()
+        try:
+            result = await tool_registry.execute("get_weather", {"location": query})
+        except Exception as e:
+            result = f"Weather lookup failed: {e}"
+        clean = re.sub(r"\[WEATHER:\s*(.*?)\]", "", text, flags=re.IGNORECASE).strip()
+        return clean, f"[Weather Forecast]:\n{result}"
+
     # [VIEW_UPCOMING_AGENDA: N]
     m = re.search(
         r"\[(VIEW_UPCOMING_AGENDA|LIST_CALENDAR_EVENTS|VIEW_TODAY_SCHEDULE)(?::\s*(.*?))?\]",
@@ -170,13 +181,14 @@ class BackgroundAgentRunner:
                 "=== TOOL ACCESS ===\n"
                 "Use your available tools to complete this task step:\n"
                 "  • web_search(query)            — live web search\n"
+                "  • get_weather(location)        — live weather forecast\n"
                 "  • view_upcoming_agenda(days_ahead) — calendar events\n"
                 "  • recall_memories(query_string) — personal memory store\n"
                 "  • get_system_metrics()         — system CPU/RAM/disk\n"
                 "  • manage_hyperv_vm(vm_name, action) — VM management\n"
                 "  • discover_local_infrastructure() — network scan\n"
                 "PREFERRED: use native tool calls.\n"
-                "FALLBACK: embed a single tag ([SEARCH:], [VIEW_UPCOMING_AGENDA:], [RECALL:]) if native tools unavailable.\n"
+                "FALLBACK: embed a single tag ([SEARCH:], [WEATHER:], [VIEW_UPCOMING_AGENDA:], [RECALL:]) if native tools unavailable.\n"
                 "Return a concise, factual summary of what you found/did for this task step."
             )
             worker_prompt = f"Execute task step: {task_desc}"

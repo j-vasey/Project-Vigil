@@ -238,6 +238,63 @@ async def _run_ps_command(cmd: str) -> tuple[int, str, str]:
 
 
 @tool_registry.register
+async def get_weather(location: str) -> str:
+    """
+    Get current weather and short-term forecast for a specific location. Use this tool when the user asks about the weather, temperature, rain, or forecast for a city.
+    """
+    import httpx
+    try:
+        # First, geocode the location to get lat/lon
+        geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            geo_response = await client.get(geo_url, params={"name": location, "count": 1, "language": "en", "format": "json"})
+            geo_data = geo_response.json()
+            
+            if not geo_data.get("results"):
+                return f"Could not find coordinates for location: '{location}'"
+                
+            lat = geo_data["results"][0]["latitude"]
+            lon = geo_data["results"][0]["longitude"]
+            loc_name = geo_data["results"][0].get("name", location)
+            country = geo_data["results"][0].get("country", "")
+            
+            # Now fetch the weather
+            weather_url = "https://api.open-meteo.com/v1/forecast"
+            params = {
+                "latitude": lat,
+                "longitude": lon,
+                "current": "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m,wind_direction_10m",
+                "timezone": "auto"
+            }
+            weather_response = await client.get(weather_url, params=params)
+            weather_data = weather_response.json()
+            
+            if "current" not in weather_data:
+                return f"Weather data not available for {loc_name}"
+                
+            current = weather_data["current"]
+            temp = current.get("temperature_2m", "?")
+            feels_like = current.get("apparent_temperature", "?")
+            precip = current.get("precipitation", 0)
+            wind = current.get("wind_speed_10m", "?")
+            code = current.get("weather_code", 0)
+            
+            # WMO Weather interpretation codes
+            weather_desc = {
+                0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+                45: "Fog", 48: "Depositing rime fog", 51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+                61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+                71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+                80: "Slight rain showers", 81: "Moderate rain showers", 82: "Violent rain showers",
+                95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail"
+            }.get(code, "Unknown conditions")
+            
+            return f"Weather in {loc_name}{', ' + country if country else ''}:\nCondition: {weather_desc}\nTemperature: {temp}°C (Feels like {feels_like}°C)\nPrecipitation: {precip}mm\nWind: {wind} km/h"
+    except Exception as e:
+        return f"Weather lookup failed: {e}"
+
+
+@tool_registry.register
 async def get_system_metrics() -> str:
     """
     Get current CPU usage percentage, total and free RAM, and C: drive disk space from the local Windows host. Call this when the user asks about system performance, memory, or storage.

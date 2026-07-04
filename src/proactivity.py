@@ -4,7 +4,7 @@ import random
 import re
 import os
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timezone, timedelta
 from typing import Optional
 
 from src.database import SessionLocal
@@ -132,6 +132,23 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
             repo.log_proactivity(reason_code=f"{reason_code}_SKIPPED_DND")
             return None
 
+        # 2.5 Dedup cooldown: prevent firing the same reason_code twice within 2 hours
+        if reason_code in ("morning_brief", "evening_summary", "autonomous_check_in"):
+            try:
+                two_hours_ago = datetime.now(timezone.utc) - timedelta(hours=2)
+                recent_logs = repo.get_recent_proactivity_logs(limit=20)
+                for log in recent_logs:
+                    if log.reason_code == reason_code:
+                        log_time = log.execution_time
+                        # Make aware if naive
+                        if log_time.tzinfo is None:
+                            log_time = log_time.replace(tzinfo=timezone.utc)
+                        if log_time > two_hours_ago:
+                            logger.info(f"[Proactivity] Dedup gate: '{reason_code}' already fired within 2h. Skipping.")
+                            return None
+            except Exception as dedup_err:
+                logger.warning(f"[Proactivity] Dedup check failed (non-blocking): {dedup_err}")
+
         logger.info(f"[Proactivity] Initiating '{reason_code}' outreach → {user_id} via {platform}...")
 
         # 3. Context gathering
@@ -181,6 +198,9 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
             "system_prompt",
             "You are a warm, helpful local AI companion named Project Vigil."
         )
+        # Inject current date/time into system prompt so proactive messages use correct dates
+        from src.orchestrator import _datetime_header
+        system_prompt = _datetime_header() + system_prompt
         llm_client = get_llm_client(backend=backend, url=llm_url, model=model, num_ctx=num_ctx)
         generated_msg = await llm_client.generate_response(prompt=prompt, system_prompt=system_prompt)
 
@@ -337,4 +357,72 @@ async def start_proactivity_engine(router: MessagingRouter) -> None:
             break
         except Exception as e:
             logger.exception(f"[Proactivity] Loop error: {e}")
+            await asyncio.sleep(15)
+
+# ---------------------------------------------------------------------------
+# Reminder Engine loop
+# ---------------------------------------------------------------------------
+
+async def start_reminder_engine(router: MessagingRouter) -> None:
+    """
+    Background loop that polls the reminders table every 30 seconds and dispatches
+    messages when their scheduled UTC time has passed.
+    """
+    logger.info("[Reminders] Starting Reminder Engine loop...")
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                repo = MessageRepository(db)
+                now_utc = datetime.now(timezone.utc)
+                now_iso = now_utc.isoformat()
+                
+                # Use raw SQLite connection to manage reminders
+                from src.database import DB_PATH
+                import sqlite3
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                
+                cursor.execute(
+                    "SELECT id, message FROM reminders WHERE fired = 0 AND remind_at <= ?",
+                    (now_iso,)
+                )
+                due_reminders = cursor.fetchall()
+                
+                for row in due_reminders:
+                    rem_id = row[0]
+                    message = row[1]
+                    
+                    # Mark as fired
+                    cursor.execute("UPDATE reminders SET fired = 1 WHERE id = ?", (rem_id,))
+                    conn.commit()
+                    
+                    logger.info(f"[Reminders] Firing reminder #{rem_id}: '{message[:20]}...'")
+                    
+                    platform = repo.get_config("proactive_platform", "mock")
+                    if platform == "telegram":
+                        user_id = repo.get_config("telegram_user_id") or repo.get_config("proactive_user_id", "mock_user")
+                    elif platform == "discord":
+                        user_id = repo.get_config("discord_user_id") or repo.get_config("proactive_user_id", "mock_user")
+                    else:
+                        user_id = repo.get_config("proactive_user_id", "mock_user")
+                        
+                    outbound_msg = f"🔔 **Reminder**\n{message}"
+                    repo.save_message(channel=platform, user_id=user_id, sender_type="bot", text=outbound_msg)
+                    await router.send_message(platform=platform, user_id=user_id, text=outbound_msg)
+                    
+                conn.close()
+                
+            except Exception as sched_err:
+                logger.error(f"[Reminders] Polling error: {sched_err}")
+            finally:
+                db.close()
+                
+            await asyncio.sleep(30)
+            
+        except asyncio.CancelledError:
+            logger.info("[Reminders] Engine shut down.")
+            break
+        except Exception as e:
+            logger.exception(f"[Reminders] Loop error: {e}")
             await asyncio.sleep(15)

@@ -101,6 +101,33 @@ class UserTrendLog(Base):
     user_message = Column(Text, nullable=True)
 
 
+class Reminder(Base):
+    """
+    Stores scheduled one-shot and recurring reminders.
+    """
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    message = Column(Text, nullable=False)
+    remind_at = Column(DateTime, nullable=False, index=True) # UTC
+    recur_rule = Column(String, nullable=True) # Optional recurrence rule string
+    fired = Column(Integer, default=0) # 0 = pending, 1 = fired
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class ConversationSummary(Base):
+    """
+    Stores long-term compressed summaries of old conversation chunks.
+    """
+    __tablename__ = "conversation_summaries"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String, index=True, nullable=False)
+    channel = Column(String, index=True, nullable=False)
+    summary_text = Column(Text, nullable=False)
+    covering_from = Column(Integer, nullable=False) # The lowest msg ID covered
+    covering_to = Column(Integer, nullable=False)   # The highest msg ID covered
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 def init_db():
     """
     Creates tables if they do not exist.
