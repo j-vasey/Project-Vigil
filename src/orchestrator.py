@@ -312,6 +312,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     # 4. Generate response with inline tool tag instructions
                     inline_system_prompt = (
                         f"{system_prompt}\n\n"
+                        "RUNTIME CONTEXT/INSTRUCTIONS:\n"
+                        "- Review the sliding conversation history to understand the flow.\n"
+                        "- Use the [Retrieved Memory Context] and [Previous Conversation Summary] to actively propose new ideas, ask relevant questions about the user's life/goals, and drive the conversation forward.\n"
+                        "- Do not just passively answer questions. End your responses with an engaging hook or question when appropriate to lead the dialogue.\n"
+                        "- Answer the user's most recent prompt strictly in character.\n\n"
                         "=== TOOL ACCESS ===\n"
                         "You have access to the following tools. Use them whenever you need live data:\n"
                         "  • web_search(query)            — live web / news search\n"
