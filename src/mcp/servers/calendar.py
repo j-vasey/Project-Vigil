@@ -211,8 +211,8 @@ async def view_upcoming_agenda(days_ahead: int = 7) -> str:
         "type": "object",
         "properties": {
             "title": {"type": "string", "description": "Subject/Title of the event."},
-            "start_time": {"type": "string", "description": "ISO 8601 start time (e.g. '2026-06-29T18:00:00')."},
-            "end_time": {"type": "string", "description": "ISO 8601 end time (e.g. '2026-06-29T19:00:00')."},
+            "start_time": {"type": "string", "description": "Start time in LOCAL time as ISO 8601 (e.g. '2026-07-06T13:00:00'). Do NOT convert to UTC — the system handles timezone conversion. Always calculate the correct year from the current date provided in your system prompt."},
+            "end_time": {"type": "string", "description": "End time in LOCAL time as ISO 8601 (e.g. '2026-07-06T14:00:00'). Do NOT convert to UTC — the system handles timezone conversion."},
             "description": {"type": "string", "description": "Body summary description details."}
         },
         "required": ["title", "start_time", "end_time"]

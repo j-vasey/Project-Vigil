@@ -5,7 +5,7 @@ import re
 import uuid
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from src.database import SessionLocal
@@ -134,7 +134,20 @@ class BackgroundAgentRunner:
             )
             guidelines_db = repo.get_config("behavioral_guidelines", "")
             user_habit_db = repo.get_config("user_habit", "")
+            # Build current date header — critical so the model never defaults to 2024
+            now_local = datetime.now()
+            now_utc = datetime.now(timezone.utc)
+            date_header = (
+                f"[SYSTEM DATE/TIME — USE THIS FOR ALL DATE CALCULATIONS]\n"
+                f"Today is {now_local.strftime('%A, %d %B %Y')}.\n"
+                f"Current local time: {now_local.strftime('%H:%M')} (Europe/London BST). "
+                f"UTC time: {now_utc.strftime('%H:%M')} UTC.\n"
+                f"Resolve ALL relative date expressions (e.g. 'next Sunday', 'this weekend', "
+                f"'5th June') against today's date: {now_local.strftime('%d %B %Y')}.\n"
+                f"[END SYSTEM DATE/TIME]\n\n"
+            )
             full_system = (
+                f"{date_header}"
                 f"PRIMARY COMPANION PERSONALITY:\n{system_prompt_db}\n\n"
                 f"BEHAVIORAL GUIDELINES:\n{guidelines_db}\n\n"
                 f"USER TREND SUMMARY:\n{user_habit_db}\n\n"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone, timedelta
 from src.router import MessagingRouter
 from src.models import InboundMessage
 from src.database import SessionLocal
@@ -7,6 +8,38 @@ from src.repository import MessageRepository
 from src.llm import get_llm_client
 
 logger = logging.getLogger("project_vigil.orchestrator")
+
+
+def _datetime_header() -> str:
+    """Returns a current-date block to prepend to every system prompt.
+    Providing the exact local date, UTC time, and day-of-week prevents the model
+    from defaulting to its training-data era (2024) when resolving relative dates.
+    """
+    try:
+        from src.mcp.servers.calendar import _get_user_timezone
+        user_tz = _get_user_timezone()
+        from datetime import timezone as _tz
+        now_local = datetime.now(user_tz)
+        now_utc = datetime.now(timezone.utc)
+        tz_name = now_local.strftime("%Z")  # e.g. 'BST', 'GMT', 'EST'
+    except Exception:
+        now_local = datetime.now()
+        now_utc = datetime.now(timezone.utc)
+        tz_name = "local"
+    day_name = now_local.strftime("%A")          # e.g. 'Friday'
+    date_str = now_local.strftime("%d %B %Y")    # e.g. '04 July 2026'
+    time_local = now_local.strftime("%H:%M")     # e.g. '19:05'
+    time_utc = now_utc.strftime("%H:%M")
+    return (
+        f"[SYSTEM DATE/TIME — USE THIS FOR ALL DATE CALCULATIONS]\n"
+        f"Today is {day_name}, {date_str}.\n"
+        f"Current local time: {time_local} {tz_name}. UTC time: {time_utc} UTC.\n"
+        f"Any date the user calls 'next week', 'this Sunday', 'tomorrow' etc. must be "
+        f"calculated relative to today: {date_str}.\n"
+        f"When creating calendar events, always pass times in LOCAL time ({tz_name}), "
+        f"not UTC. The system will handle UTC conversion automatically.\n"
+        f"[END SYSTEM DATE/TIME]\n\n"
+    )
 
 _inbound_queue = None
 
@@ -100,9 +133,12 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                 
                 # 3. Retrieve active configurations
                 system_prompt = repo.get_config(
-                    "system_prompt", 
+                    "system_prompt",
                     "You are a helpful, empathetic local AI companion named Project Vigil. Keep responses concise, warm, and supportive."
                 )
+                # Prepend current date/time so the model never resolves relative dates
+                # against its training-data era (2024).
+                system_prompt = _datetime_header() + system_prompt
                 
                 # Fetch LLM configurations
                 backend = repo.get_config("llm_backend", "mock")
