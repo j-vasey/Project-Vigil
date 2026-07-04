@@ -2,7 +2,9 @@ import os
 import sqlite3
 import asyncio
 import httpx
+import re as _re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from src.mcp.servers.base import MCPServer
 
 server = MCPServer("server-m365-calendar")
@@ -39,6 +41,50 @@ def db_set_config(key: str, value: str):
     cursor.execute("INSERT OR REPLACE INTO configurations (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
     conn.close()
+
+
+def _get_user_timezone() -> ZoneInfo:
+    """
+    Returns the user's configured timezone as a ZoneInfo object.
+    Falls back to UTC if not set or unrecognised.
+    Reads from the 'm365_user_timezone' configuration key (e.g. 'Europe/London').
+    """
+    tz_str = db_get_config("m365_user_timezone", "UTC")
+    try:
+        return ZoneInfo(tz_str)
+    except (ZoneInfoNotFoundError, Exception):
+        return ZoneInfo("UTC")
+
+
+def _normalise_datetime(dt_str: str, user_tz: ZoneInfo) -> tuple[str, str]:
+    """
+    Normalise a model-supplied ISO datetime string.
+    - If naive (no timezone), assumes it is in user_tz local time and converts to UTC.
+    - If timezone-aware, converts to UTC for storage.
+    Returns (utc_iso_string_for_graph, display_string_in_local_tz).
+    """
+    # Strip trailing Z and whitespace
+    clean = dt_str.strip().rstrip("Z").strip()
+    try:
+        dt = datetime.fromisoformat(clean)
+    except ValueError:
+        # Try to handle common model mistakes like '2026-07-04 19:00:00'
+        clean = clean.replace(" ", "T")
+        dt = datetime.fromisoformat(clean)
+
+    if dt.tzinfo is None:
+        # Naive — assume user's local timezone
+        dt = dt.replace(tzinfo=user_tz)
+
+    # Convert to UTC for Graph API storage
+    dt_utc = dt.astimezone(timezone.utc)
+    # Build local display string
+    dt_local = dt.astimezone(user_tz)
+
+    # Graph wants naive UTC string (no +00:00 suffix)
+    utc_str = dt_utc.strftime("%Y-%m-%dT%H:%M:%S")
+    local_str = dt_local.strftime("%Y-%m-%d %H:%M %Z")
+    return utc_str, local_str
 
 async def get_valid_access_token() -> str:
     """Retrieves access token, refreshing it if expired."""
@@ -78,7 +124,7 @@ async def get_valid_access_token() -> str:
         "client_id": client_id,
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
-        "scope": "https://graph.microsoft.com/Calendars.ReadWrite offline_access"
+        "scope": "https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/User.Read offline_access"
     }
     if client_secret:
         payload["client_secret"] = client_secret
@@ -177,34 +223,51 @@ async def create_calendar_event(title: str, start_time: str, end_time: str, desc
         token = await get_valid_access_token()
     except Exception as e:
         return str(e)
-        
+
+    user_tz = _get_user_timezone()
+
+    try:
+        utc_start, local_start = _normalise_datetime(start_time, user_tz)
+        utc_end,   local_end   = _normalise_datetime(end_time,   user_tz)
+    except Exception as e:
+        return f"Error parsing event times: {e}. Please use ISO 8601 format e.g. '2026-07-04T19:00:00'."
+
+    import logging
+    logger = logging.getLogger("project_vigil.calendar")
+    logger.info(f"[Calendar] Creating event '{title}': UTC {utc_start} -> {utc_end} | Local ({user_tz}) {local_start} -> {local_end}")
+
     url = "https://graph.microsoft.com/v1.0/me/events"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    
-    # Ensure times are correctly formatted for Outlook API (Outlook expects timezone defined)
+
     payload = {
         "subject": title,
         "body": {
             "contentType": "HTML",
-            "content": description
+            "content": description or ""
         },
         "start": {
-            "dateTime": start_time,
+            "dateTime": utc_start,
             "timeZone": "UTC"
         },
         "end": {
-            "dateTime": end_time,
+            "dateTime": utc_end,
             "timeZone": "UTC"
         }
     }
-    
+
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload)
         if response.status_code == 201:
-            return f"Success: Calendar event '{title}' created successfully."
+            created = response.json()
+            web_link = created.get("webLink", "")
+            return (
+                f"Success: Calendar event '{title}' created.\n"
+                f"  Start: {local_start}  |  End: {local_end}\n"
+                f"  View in Outlook: {web_link}"
+            )
         return f"Failed to create event: {response.text}"
 
 @server.register_tool(
@@ -233,13 +296,15 @@ async def modify_calendar_event(
         token = await get_valid_access_token()
     except Exception as e:
         return str(e)
-        
+
+    user_tz = _get_user_timezone()
+
     url = f"https://graph.microsoft.com/v1.0/me/events/{event_id}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    
+
     payload = {}
     if title:
         payload["subject"] = title
@@ -249,19 +314,21 @@ async def modify_calendar_event(
             "content": description
         }
     if start_time:
-        payload["start"] = {
-            "dateTime": start_time,
-            "timeZone": "UTC"
-        }
+        try:
+            utc_start, _ = _normalise_datetime(start_time, user_tz)
+        except Exception:
+            utc_start = start_time
+        payload["start"] = {"dateTime": utc_start, "timeZone": "UTC"}
     if end_time:
-        payload["end"] = {
-            "dateTime": end_time,
-            "timeZone": "UTC"
-        }
-        
+        try:
+            utc_end, _ = _normalise_datetime(end_time, user_tz)
+        except Exception:
+            utc_end = end_time
+        payload["end"] = {"dateTime": utc_end, "timeZone": "UTC"}
+
     if not payload:
         return "No parameters provided to update."
-        
+
     async with httpx.AsyncClient() as client:
         response = await client.patch(url, headers=headers, json=payload)
         if response.status_code == 200:
@@ -336,14 +403,15 @@ async def create_recurring_calendar_event(
         return str(e)
 
     # 1. Parse start time and calculate end time of the first instance
-    clean_start = start_time_iso.replace("Z", "")
+    user_tz = _get_user_timezone()
     try:
-        start_dt = datetime.fromisoformat(clean_start)
+        utc_start, local_start = _normalise_datetime(start_time_iso, user_tz)
+        start_dt = datetime.fromisoformat(utc_start)
     except Exception as e:
         return f"Invalid start_time_iso format: {e}"
-        
+
     end_dt = start_dt + timedelta(minutes=duration_minutes)
-    end_time_iso = end_dt.isoformat()
+    utc_end = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # 2. Build the basic Microsoft Graph payload
     payload = {
@@ -353,11 +421,11 @@ async def create_recurring_calendar_event(
             "content": description
         },
         "start": {
-            "dateTime": clean_start,
+            "dateTime": utc_start,
             "timeZone": "UTC"
         },
         "end": {
-            "dateTime": end_time_iso,
+            "dateTime": utc_end,
             "timeZone": "UTC"
         },
         "recurrence": {

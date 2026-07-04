@@ -110,6 +110,7 @@ def seed_defaults():
             "m365_access_token": "",
             "m365_refresh_token": "",
             "m365_token_expiry": "",
+            "m365_user_timezone": "Europe/London",  # IANA timezone name for calendar event localisation
             "url_root": "https://127.0.0.1:8003"
         }
         for key, val in defaults.items():
