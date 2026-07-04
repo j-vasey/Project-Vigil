@@ -273,14 +273,15 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                 else:
                     logger.info(f"[Orchestrator] Routing prompt to Synchronous SYNC_CHAT Lane: {message.message_body}")
                     
-                    # 1. Execute Active Memory MCP server's recall_memories() tool in-thread
+                    # 1. Retrieve all stored user facts/memories up to a reasonable limit
                     recalled_context = ""
-                     # Fallback check to avoid tool lookup failures in basic tests
-                    from src.tools.registry import tool_registry
                     try:
-                        recalled_context = await tool_registry.execute("recall_memories", {"query_string": message.message_body})
+                        memories = repo.search_memories("")[:50] # Get up to 50 most recent facts
+                        if memories:
+                            mem_lines = [f"[{m.category}] {m.fact}" for m in memories]
+                            recalled_context = "\n".join(mem_lines)
                     except Exception as e:
-                        logger.warning(f"[Orchestrator] In-thread recall_memories execution failed: {e}")
+                        logger.warning(f"[Orchestrator] Failed to fetch active memories: {e}")
                     
                     # 2. Retrieve history for context (sliding window of last 10 messages)
                     history = repo.get_sliding_window_history(
