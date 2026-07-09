@@ -190,10 +190,15 @@ async def lifespan(app: FastAPI):
 
     # 5. Start background worker loops
     from src.proactivity import start_proactivity_engine, start_reminder_engine
+    from src.providers.screen_memory import ScreenMemoryService
+    
     queue_task = asyncio.create_task(start_queue_worker(router))
     proactive_task = asyncio.create_task(start_proactivity_engine(router))
     reminder_task = asyncio.create_task(start_reminder_engine(router))
     polling_task = asyncio.create_task(start_telegram_polling(router))
+    
+    screen_memory = ScreenMemoryService()
+    screen_task = asyncio.create_task(screen_memory.run_loop())
     
     from src.discord_gateway import start_discord_gateway
     discord_task = asyncio.create_task(start_discord_gateway(router))
@@ -202,12 +207,14 @@ async def lifespan(app: FastAPI):
     background_tasks.add(proactive_task)
     background_tasks.add(reminder_task)
     background_tasks.add(polling_task)
+    background_tasks.add(screen_task)
     background_tasks.add(discord_task)
 
     queue_task.add_done_callback(background_tasks.discard)
     proactive_task.add_done_callback(background_tasks.discard)
     reminder_task.add_done_callback(background_tasks.discard)
     polling_task.add_done_callback(background_tasks.discard)
+    screen_task.add_done_callback(background_tasks.discard)
     discord_task.add_done_callback(background_tasks.discard)
 
     logger.info("[Main] Background services and loops successfully booted.")
@@ -220,8 +227,9 @@ async def lifespan(app: FastAPI):
     proactive_task.cancel()
     reminder_task.cancel()
     polling_task.cancel()
+    screen_task.cancel()
     discord_task.cancel()
-    await asyncio.gather(queue_task, proactive_task, reminder_task, polling_task, discord_task, return_exceptions=True)
+    await asyncio.gather(queue_task, proactive_task, reminder_task, polling_task, screen_task, discord_task, return_exceptions=True)
     
     # 7. Stop all local MCP servers
     from src.mcp.client import mcp_manager

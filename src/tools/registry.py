@@ -645,3 +645,38 @@ async def execute_windows_command(ip_address: str, powershell_script: str) -> st
     except Exception as e:
         logger.error(f"[ToolRegistry] WinRM command failed: {e}")
         return f"WinRM Connection to {ip_address} failed: {str(e)}"
+
+@tool_registry.register
+async def view_screen() -> str:
+    """
+    Capture the user's primary desktop screen and analyze what they are currently doing. Use this tool when the user asks you to look at their screen, read something on their desktop, or asks what they are working on.
+    """
+    try:
+        from PIL import ImageGrab
+        from io import BytesIO
+        import base64
+        from src.llm import get_llm_client
+        
+        # 1. Capture Engine
+        img = ImageGrab.grab()
+        img = img.convert("RGB")
+        img.thumbnail((1024, 1024))
+        
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        
+        backend = _load_db_config("llm_backend", "mock")
+        url = _load_db_config("llm_url", "http://localhost:11434")
+        model = _load_db_config("screen_memory_model", "llama3.2-vision")
+        
+        client = get_llm_client(backend=backend, url=url, model=model)
+        
+        system_prompt = "Analyze this screen capture of the user's desktop. Write a concise description of what they are looking at or working on."
+        prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nPlease describe the contents of this screen."
+        
+        response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
+        return response_text.strip()
+    except Exception as e:
+        logger.error(f"[ToolRegistry] Error capturing/analyzing screen: {e}")
+        return f"Failed to capture or analyze the screen: {e}"

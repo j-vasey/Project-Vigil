@@ -304,7 +304,12 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         dialogue_lines.append(f"System: [Previous Conversation Summary]\n{long_term_summary.summary_text}")
                         
                     for hist_msg in history:
-                        role = "User" if hist_msg.sender_type == "user" else "Companion"
+                        if hist_msg.sender_type == "user":
+                            role = "User"
+                        elif hist_msg.sender_type == "system":
+                            role = "System"
+                        else:
+                            role = "Companion"
                         dialogue_lines.append(f"{role}: {hist_msg.text}")
                     dialogue_lines.append("Companion:")
                     prompt = "\n".join(dialogue_lines)
@@ -324,6 +329,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         "  • view_upcoming_agenda(days_ahead) — fetch upcoming calendar events\n"
                         "  • recall_memories(query_string) — retrieve stored personal facts\n"
                         "  • get_system_metrics()         — host CPU/RAM/disk usage\n"
+                        "  • view_screen()                — capture and analyze user's screen\n"
                         "PREFERRED: invoke tools natively if your runtime supports it.\n"
                         "FALLBACK: if native tool calls are unavailable, embed ONE trigger tag in your reply:\n"
                         "  [SEARCH: your query here]\n"
@@ -331,6 +337,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         "  [VIEW_UPCOMING_AGENDA: 7]\n"
                         "  [RECALL: keywords]\n"
                         "  [IMAGE: description]\n"
+                        "  [VIEW_SCREEN]\n"
                         "Do NOT include a tag AND prose together — use one or the other.\n"
                         "NEVER send a raw tag to the user. Tags are internal signals only.\n"
                         "=== END TOOL ACCESS ==="
@@ -469,6 +476,34 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                             system_prompt=inline_system_prompt
                         )
 
+                    # Check for [VIEW_SCREEN] trigger
+                    screen_match = re.search(r"\[VIEW_SCREEN\]", response_text, re.IGNORECASE)
+                    if screen_match:
+                        logger.info(f"[Orchestrator] Found [VIEW_SCREEN] trigger in response.")
+                        try:
+                            screen_results = await tool_registry.execute("view_screen", {})
+                        except Exception as se:
+                            screen_results = f"Screen capture failed: {se}"
+                        
+                        clean_prev = re.sub(r"\[VIEW_SCREEN\]", "", response_text, flags=re.IGNORECASE).strip()
+                        screen_dialogue = []
+                        screen_dialogue.append(f"System: [Screen Capture Analyzed]:\n{screen_results}")
+                        for hist_msg in history:
+                            if hist_msg.sender_type == "user":
+                                role = "User"
+                            elif hist_msg.sender_type == "system":
+                                role = "System"
+                            else:
+                                role = "Companion"
+                            screen_dialogue.append(f"{role}: {hist_msg.text}")
+                        if clean_prev:
+                            screen_dialogue.append(f"Companion: {clean_prev}")
+                        screen_dialogue.append("Companion:")
+                        response_text = await client.generate_response(
+                            prompt="\n".join(screen_dialogue),
+                            system_prompt=inline_system_prompt
+                        )
+
                     # Check for [IMAGE: image prompt] trigger
                     image_match = re.search(r"\[IMAGE:\s*(.*?)\]", response_text)
                     
@@ -524,11 +559,15 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                             text=response_text
                         )
                         # 6. Trigger background summarizer check
-                    asyncio.create_task(run_summarizer(message.platform, message.user_id, repo))
-                    
-                    # 7. Trigger background memory extraction
-                    from src.memory_extractor import extract_and_store_memories
-                    asyncio.create_task(extract_and_store_memories(message.text, repo))
+                    try:
+                        asyncio.create_task(run_summarizer(message.platform, message.user_id, repo))
+                        
+                        # 7. Trigger background memory extraction
+                        from src.memory_extractor import extract_and_store_memories
+                        message_text = getattr(message, 'text', None) or getattr(message, 'message_body', None) or str(message)
+                        asyncio.create_task(extract_and_store_memories(message_text, repo))
+                    except Exception as bg_ex:
+                        logger.error(f"[Orchestrator] Non-fatal error during background logging setup: {bg_ex}")
                 
             except Exception as ex:
                 logger.exception(f"[Orchestrator] Database transaction error in queue worker: {ex}")
