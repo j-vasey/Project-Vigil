@@ -668,12 +668,12 @@ async def view_screen() -> str:
         
         backend = _load_db_config("llm_backend", "mock")
         url = _load_db_config("llm_url", "http://localhost:11434")
-        model = _load_db_config("screen_memory_model", "llama3.2-vision")
+        model = _load_db_config("screen_memory_model", "qwen3.5-agent")
         
         client = get_llm_client(backend=backend, url=url, model=model)
         
-        system_prompt = "Analyze this screen capture of the user's desktop. Write a concise description of what they are looking at or working on."
-        prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nPlease describe the contents of this screen."
+        system_prompt = ""
+        prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nAnalyze this screen capture of my active desktop. Write a concise, one-sentence description of what application or file I am working on."
         
         response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
         return response_text.strip()

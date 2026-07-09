@@ -55,12 +55,12 @@ class ScreenMemoryService:
                     
                     backend = repo.get_config("llm_backend", "mock")
                     url = repo.get_config("llm_url", "http://localhost:11434")
-                    model = repo.get_config("screen_memory_model", "llama3.2-vision")
+                    model = repo.get_config("screen_memory_model", "qwen3.5-agent")
                     
                     client = get_llm_client(backend=backend, url=url, model=model)
                     
-                    system_prompt = "Analyze this screen capture of the user's desktop. Write a concise, one-sentence description of the exact task, application, or file they are currently working on. Do not include UI fluff."
-                    prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nWhat is the user currently doing on their screen?"
+                    system_prompt = ""
+                    prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nAnalyze this screen capture of my active desktop. Write a concise, one-sentence description of what application or file I am working on."
                     
                     response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
                     
