@@ -189,11 +189,12 @@ async def lifespan(app: FastAPI):
     router.register_inbound_handler(enqueue_inbound_message)
 
     # 5. Start background worker loops
-    from src.proactivity import start_proactivity_engine, start_reminder_engine
+    from src.proactivity import start_proactivity_engine, start_reminder_engine, start_memory_evaluator_engine
     from src.providers.screen_memory import ScreenMemoryService
     
     queue_task = asyncio.create_task(start_queue_worker(router))
     proactive_task = asyncio.create_task(start_proactivity_engine(router))
+    memory_evaluator_task = asyncio.create_task(start_memory_evaluator_engine(router))
     reminder_task = asyncio.create_task(start_reminder_engine(router))
     polling_task = asyncio.create_task(start_telegram_polling(router))
     
@@ -205,6 +206,7 @@ async def lifespan(app: FastAPI):
 
     background_tasks.add(queue_task)
     background_tasks.add(proactive_task)
+    background_tasks.add(memory_evaluator_task)
     background_tasks.add(reminder_task)
     background_tasks.add(polling_task)
     background_tasks.add(screen_task)
@@ -212,6 +214,7 @@ async def lifespan(app: FastAPI):
 
     queue_task.add_done_callback(background_tasks.discard)
     proactive_task.add_done_callback(background_tasks.discard)
+    memory_evaluator_task.add_done_callback(background_tasks.discard)
     reminder_task.add_done_callback(background_tasks.discard)
     polling_task.add_done_callback(background_tasks.discard)
     screen_task.add_done_callback(background_tasks.discard)
@@ -225,11 +228,12 @@ async def lifespan(app: FastAPI):
     logger.info("[Main] Initiating background task cancellations...")
     queue_task.cancel()
     proactive_task.cancel()
+    memory_evaluator_task.cancel()
     reminder_task.cancel()
     polling_task.cancel()
     screen_task.cancel()
     discord_task.cancel()
-    await asyncio.gather(queue_task, proactive_task, reminder_task, polling_task, screen_task, discord_task, return_exceptions=True)
+    await asyncio.gather(queue_task, proactive_task, memory_evaluator_task, reminder_task, polling_task, screen_task, discord_task, return_exceptions=True)
     
     # 7. Stop all local MCP servers
     from src.mcp.client import mcp_manager

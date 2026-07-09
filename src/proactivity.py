@@ -426,3 +426,136 @@ async def start_reminder_engine(router: MessagingRouter) -> None:
         except Exception as e:
             logger.exception(f"[Reminders] Loop error: {e}")
             await asyncio.sleep(15)
+
+# ---------------------------------------------------------------------------
+# Proactive Memory Evaluator
+# ---------------------------------------------------------------------------
+
+async def start_memory_evaluator_engine(router: MessagingRouter):
+    """
+    Periodically evaluates recent screen memory logs to push proactive alerts.
+    """
+    logger.info("[Proactivity] Memory Evaluator engine started.")
+    last_alert_time = None
+    last_alert_text = None
+    
+    while True:
+        db = SessionLocal()
+        try:
+            repo = MessageRepository(db)
+            enabled = repo.get_config("proactivity_enabled", "True").lower() == "true"
+            if not enabled:
+                await asyncio.sleep(60)
+                continue
+
+            eval_interval = int(repo.get_config("memory_evaluator_interval", "300"))
+            await asyncio.sleep(eval_interval)
+
+            # 1. System health and DND gate
+            if repo.get_config("system_health", "healthy") == "paused":
+                continue
+
+            dnd_start = repo.get_config("dnd_start", "22:00")
+            dnd_end = repo.get_config("dnd_end", "08:00")
+            if is_dnd_active(dnd_start, dnd_end):
+                continue
+
+            # 2. Fetch last 10 minutes of screen activity
+            recent_screen = repo.get_recent_system_context(minutes=10)
+            if not recent_screen:
+                continue
+
+            # Parse and deduplicate
+            screen_lines = []
+            last_activity = None
+            for s_msg in recent_screen:
+                try:
+                    ctx = json.loads(s_msg.text)
+                    activity = ctx.get("captured_activity", "")
+                    if activity and activity != last_activity:
+                        tstamp = s_msg.timestamp.strftime("%H:%M")
+                        screen_lines.append(f"- [{tstamp}] {activity}")
+                        last_activity = activity
+                except Exception:
+                    pass
+            
+            if not screen_lines:
+                continue
+
+            activity_log = "\n".join(screen_lines)
+
+            # 3. LLM Gating Prompt
+            system_prompt = (
+                "You are an advanced proactive AI agent evaluating the user's desktop activity log over the past 10 minutes.\n"
+                "Determine if there is an immediate, helpful optimization, warning, or task reminder required.\n"
+                "If NO proactive action is needed, return exactly: 'IGNORE'.\n"
+                "If action IS needed, return a helpful, brief proactive suggestion starting with 'NOTIFY: [your message]'."
+            )
+            
+            prompt = (
+                f"--- RECENT DESKTOP ACTIVITY ---\n"
+                f"{activity_log}\n"
+                f"-------------------------------\n"
+                f"Evaluate this log now."
+            )
+
+            # Use fast backend
+            backend = repo.get_config("llm_backend", "mock")
+            url = repo.get_config("llm_url", "http://localhost:11434")
+            model = repo.get_config("proactive_model", "qwen2.5:7b")
+            client = get_llm_client(backend=backend, url=url, model=model)
+
+            response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
+            
+            if not response_text or response_text.strip().upper().startswith("IGNORE"):
+                continue
+
+            notify_match = re.search(r"NOTIFY:\s*(.*)", response_text, re.IGNORECASE | re.DOTALL)
+            if notify_match:
+                alert_msg = notify_match.group(1).strip()
+                
+                # Cooldown logic (no alerts within 30 min, or identical alert)
+                now = datetime.now(timezone.utc)
+                if last_alert_time and (now - last_alert_time).total_seconds() < 1800:
+                    logger.info("[Proactivity] Memory Evaluator blocked by 30-minute cooldown.")
+                    continue
+                if last_alert_text and alert_msg == last_alert_text:
+                    logger.info("[Proactivity] Memory Evaluator blocked by duplicate alert text.")
+                    continue
+
+                # 4. Dispatch alert
+                platform = repo.get_config("proactive_platform", "mock")
+                if platform == "telegram":
+                    user_id = repo.get_config("telegram_user_id") or repo.get_config("proactive_user_id", "mock_user")
+                elif platform == "discord":
+                    user_id = repo.get_config("discord_user_id") or repo.get_config("proactive_user_id", "mock_user")
+                else:
+                    user_id = repo.get_config("proactive_user_id", "mock_user")
+
+                # Dispatch via router
+                await router.send_message(
+                    platform=platform,
+                    user_id=user_id,
+                    text=f"Proactive Alert: {alert_msg}"
+                )
+
+                # Save to DB
+                repo.save_message(
+                    channel=platform,
+                    user_id=user_id,
+                    sender_type="bot",
+                    text=f"[Proactive Desktop Alert] {alert_msg}"
+                )
+                repo.log_proactivity(reason_code="desktop_activity_alert")
+                
+                last_alert_time = now
+                last_alert_text = alert_msg
+
+        except asyncio.CancelledError:
+            logger.info("[Proactivity] Memory Evaluator engine shut down.")
+            break
+        except Exception as e:
+            logger.error(f"[Proactivity] Memory Evaluator loop error: {e}")
+            await asyncio.sleep(60)
+        finally:
+            db.close()

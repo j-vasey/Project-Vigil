@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session
@@ -69,6 +69,7 @@ class MessageRepository:
             conditions.append(and_(Conversation.channel == "mock", Conversation.user_id == user_id))
             
         history = self.db.query(Conversation)\
+            .filter(Conversation.sender_type != "system")\
             .filter(or_(*conditions))\
             .order_by(Conversation.timestamp.desc())\
             .limit(limit)\
@@ -88,6 +89,18 @@ class MessageRepository:
             history = list(reversed(kept))
 
         return history
+
+    def get_recent_system_context(self, minutes: int = 30) -> List[Conversation]:
+        """
+        Retrieves system-generated context messages (like screen memory) from the last N minutes.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+        results = self.db.query(Conversation)\
+            .filter(Conversation.sender_type == "system")\
+            .filter(Conversation.timestamp >= cutoff)\
+            .order_by(Conversation.timestamp.asc())\
+            .all()
+        return results
 
     def get_latest_conversation_summary(self, channel: str, user_id: str) -> Optional[ConversationSummary]:
         """Gets the most recent conversation summary for this user/channel."""

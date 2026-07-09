@@ -304,19 +304,36 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         dialogue_lines.append(f"System: [Previous Conversation Summary]\n{long_term_summary.summary_text}")
                         
                     for hist_msg in history:
-                        if hist_msg.sender_type == "user":
-                            role = "User"
-                        elif hist_msg.sender_type == "system":
-                            role = "System"
-                        else:
-                            role = "Companion"
+                        role = "User" if hist_msg.sender_type == "user" else "Companion"
                         dialogue_lines.append(f"{role}: {hist_msg.text}")
                     dialogue_lines.append("Companion:")
                     prompt = "\n".join(dialogue_lines)
                      
+                    recent_screen = repo.get_recent_system_context(minutes=30)
+                    screen_context_block = ""
+                    if recent_screen:
+                        import json
+                        screen_lines = ["--- CURRENT DESKTOP CONTEXT ---"]
+                        screen_lines.append("Within the last 30 minutes, the user was working on:")
+                        last_activity = None
+                        for s_msg in recent_screen:
+                            try:
+                                ctx = json.loads(s_msg.text)
+                                activity = ctx.get("captured_activity", "")
+                                if activity and activity != last_activity:
+                                    tstamp = s_msg.timestamp.strftime("%H:%M")
+                                    screen_lines.append(f"- [{tstamp}] {activity}")
+                                    last_activity = activity
+                            except Exception:
+                                pass
+                        screen_lines.append("-------------------------------")
+                        if len(screen_lines) > 3:
+                            screen_context_block = "\n".join(screen_lines) + "\n\n"
+
                     # 4. Generate response with inline tool tag instructions
                     inline_system_prompt = (
                         f"{system_prompt}\n\n"
+                        f"{screen_context_block}"
                         "RUNTIME CONTEXT/INSTRUCTIONS:\n"
                         "- Review the sliding conversation history to understand the flow.\n"
                         "- Use the [Retrieved Memory Context] and [Previous Conversation Summary] to actively propose new ideas, ask relevant questions about the user's life/goals, and drive the conversation forward.\n"
@@ -489,12 +506,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         screen_dialogue = []
                         screen_dialogue.append(f"System: [Screen Capture Analyzed]:\n{screen_results}")
                         for hist_msg in history:
-                            if hist_msg.sender_type == "user":
-                                role = "User"
-                            elif hist_msg.sender_type == "system":
-                                role = "System"
-                            else:
-                                role = "Companion"
+                            role = "User" if hist_msg.sender_type == "user" else "Companion"
                             screen_dialogue.append(f"{role}: {hist_msg.text}")
                         if clean_prev:
                             screen_dialogue.append(f"Companion: {clean_prev}")
