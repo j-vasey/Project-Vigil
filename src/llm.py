@@ -146,13 +146,14 @@ class OllamaClient(BaseLLMClient):
                 "stream": True,
                 "options": {
                     "num_ctx": self.num_ctx,
-                    # Disable Gemma4 thinking mode when tools are present to prevent
-                    # <think> block deadlocks and tool_call parsing failures
-                    "think": False if tools else True
+                    "temperature": 0.7
                 }
             }
             if tools:
                 payload["tools"] = tools
+                # Disable thinking mode when tools are present to prevent
+                # <think> block deadlocks and tool_call parsing failures
+                payload["options"]["think"] = False
             logger.info(f"[Ollama Client] Sending chat request (iteration {iteration+1}, model '{self.model}') to {url}...")
             try:
                 import json
@@ -166,6 +167,7 @@ class OllamaClient(BaseLLMClient):
                             
                         full_content = ""
                         tool_calls = []
+                        stream_done = False
                         
                         print(f"[Ollama Generating (Iter {iteration+1})]: ", end="", flush=True)
                         
@@ -176,7 +178,7 @@ class OllamaClient(BaseLLMClient):
                                 data = json.loads(line)
                                 assistant_message = data.get("message", {})
                                 
-                                # Extract content chunks and print dots
+                                # Extract content chunks
                                 chunk = assistant_message.get("content", "")
                                 if chunk:
                                     full_content += chunk
@@ -185,20 +187,31 @@ class OllamaClient(BaseLLMClient):
                                 # Capture tool calls (usually sent in the final chunk)
                                 if "tool_calls" in assistant_message and assistant_message["tool_calls"]:
                                     tool_calls = assistant_message["tool_calls"]
+                                
+                                # Check for stream completion
+                                if data.get("done", False):
+                                    stream_done = True
+                                    
                             except json.JSONDecodeError:
                                 pass
                                 
-                        print(" [Done]", flush=True)
+                        print(f" [Done, {len(full_content)} chars]", flush=True)
+                        logger.info(f"[Ollama Client] Raw response length: {len(full_content)} chars, tool_calls: {len(tool_calls)}, stream_done: {stream_done}")
                         
-                        # Strip Gemma4 <think>...</think> reasoning blocks from content.
-                        # These must never pollute the assistant message payload sent back
-                        # into the message history or the tool call loop will break.
+                        # Strip <think>...</think> reasoning blocks from content.
                         full_content = _re.sub(r"<think>.*?</think>", "", full_content, flags=_re.DOTALL).strip()
+                        # Strip orphaned/unclosed <think> or </think> tags
+                        full_content = _re.sub(r"</?think>", "", full_content, flags=_re.IGNORECASE).strip()
                         
                     if full_content:
                         accumulated_contents.append(full_content.strip())
                         
                     if not tool_calls:
+                        # No tool calls — return ALL accumulated content from this and prior iterations
+                        if len(accumulated_contents) > 1:
+                            # The model generated text before a tool call on a prior iteration,
+                            # then continued here. Join them for a complete response.
+                            return "\n\n".join(accumulated_contents).strip()
                         return full_content.strip()
                         
                     # Append assistant tool call message to history
@@ -226,7 +239,6 @@ class OllamaClient(BaseLLMClient):
                         messages.append({
                             "role": "tool",
                             "name": func_name,
-                            # Pass tool_call_id so Gemma4 can correlate results with its call
                             "tool_call_id": tool_call.get("id", func_name),
                             "content": str(tool_result)
                         })
@@ -235,7 +247,7 @@ class OllamaClient(BaseLLMClient):
                 logger.exception(f"[Ollama Client] Connection failed to {url}: {e}")
                 return f"[Ollama Connection Error] Could not connect to {self.base_url}"
                 
-        # Fallback Graceful Terminate
+        # Fallback Graceful Terminate — join ALL accumulated text across iterations
         partial_text = "\n\n".join(accumulated_contents).strip()
         if not partial_text:
             partial_text = "I performed some automated system commands on your behalf."
