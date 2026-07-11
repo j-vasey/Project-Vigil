@@ -62,7 +62,7 @@ class ScreenMemoryService:
                     system_prompt = ""
                     prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nAnalyze this screen capture of my active desktop. Write a concise, one-sentence description of what application or file I am working on."
                     
-                    response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
+                    response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt, use_tools=False)
                     
                     if not response_text or "Error" in response_text:
                         pass

@@ -675,7 +675,7 @@ async def view_screen() -> str:
         system_prompt = ""
         prompt = f"[IMAGE_ATTACHMENT: {b64_data}]\nAnalyze this screen capture of my active desktop. Write a concise, one-sentence description of what application or file I am working on."
         
-        response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
+        response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt, use_tools=False)
         return response_text.strip()
     except Exception as e:
         logger.error(f"[ToolRegistry] Error capturing/analyzing screen: {e}")

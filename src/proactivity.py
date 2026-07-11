@@ -202,7 +202,7 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
         from src.orchestrator import _datetime_header
         system_prompt = _datetime_header() + system_prompt
         llm_client = get_llm_client(backend=backend, url=llm_url, model=model, num_ctx=num_ctx)
-        generated_msg = await llm_client.generate_response(prompt=prompt, system_prompt=system_prompt)
+        generated_msg = await llm_client.generate_response(prompt=prompt, system_prompt=system_prompt, use_tools=False)
 
         # 4a. Handle [SEARCH:] tag
         search_match = re.search(r"\[SEARCH:\s*(.*?)\]", generated_msg)
@@ -505,7 +505,7 @@ async def start_memory_evaluator_engine(router: MessagingRouter):
             model = repo.get_config("proactive_model", "qwen2.5:7b")
             client = get_llm_client(backend=backend, url=url, model=model)
 
-            response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt)
+            response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt, use_tools=False)
             
             if not response_text or response_text.strip().upper().startswith("IGNORE"):
                 continue

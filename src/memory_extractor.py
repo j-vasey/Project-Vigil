@@ -30,7 +30,7 @@ async def extract_and_store_memories(user_message: str, repo: MessageRepository)
         client = get_llm_client(backend=backend, url=url, model=model)
         
         # We do not want this to block or hold up anything, so we use a very short context
-        response = await client.generate_response(prompt=user_message, system_prompt=system_prompt)
+        response = await client.generate_response(prompt=user_message, system_prompt=system_prompt, use_tools=False)
         
         # Attempt to parse JSON from the response
         try:

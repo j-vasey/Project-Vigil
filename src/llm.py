@@ -77,13 +77,14 @@ class BaseLLMClient(ABC):
     """
 
     @abstractmethod
-    async def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate_response(self, prompt: str, system_prompt: str = "", use_tools: bool = True) -> str:
         """
         Sends prompts to the LLM backend and extracts the completion response.
 
         Args:
             prompt: User/context prompt input.
             system_prompt: System-level constraints or identity instructions.
+            use_tools: Whether to include tool schemas in the request.
 
         Returns:
             str: Generated text response.
@@ -94,7 +95,7 @@ class MockLLMClient(BaseLLMClient):
     Generates dummy responses without requiring network endpoints.
     """
 
-    async def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate_response(self, prompt: str, system_prompt: str = "", use_tools: bool = True) -> str:
         logger.info(f"[MockLLM] Mock response generated for prompt: {prompt[:30]}...")
         # Check for image trigger in the prompt to allow automated testing of ComfyUI
         if "trigger image" in prompt.lower():
@@ -121,17 +122,17 @@ class OllamaClient(BaseLLMClient):
     Supports standard Ollama /api/chat endpoint with native function/tool calling.
     """
 
-    def __init__(self, base_url: str, model: str, num_ctx: int = 8192):
+    def __init__(self, base_url: str, model: str, num_ctx: int = 32768):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.num_ctx = num_ctx
 
-    async def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate_response(self, prompt: str, system_prompt: str = "", use_tools: bool = True) -> str:
         url = f"{self.base_url}/api/chat"
         messages = parse_prompt_to_messages(prompt, system_prompt)
         
         from src.tools.registry import tool_registry
-        tools = tool_registry.get_schemas()
+        tools = tool_registry.get_schemas() if use_tools else []
         
         last_tool_name = None
         last_tool_args = None
@@ -143,7 +144,6 @@ class OllamaClient(BaseLLMClient):
                 "model": self.model,
                 "messages": messages,
                 "stream": True,
-                "tools": tools,
                 "options": {
                     "num_ctx": self.num_ctx,
                     # Disable Gemma4 thinking mode when tools are present to prevent
@@ -151,6 +151,8 @@ class OllamaClient(BaseLLMClient):
                     "think": False if tools else True
                 }
             }
+            if tools:
+                payload["tools"] = tools
             logger.info(f"[Ollama Client] Sending chat request (iteration {iteration+1}, model '{self.model}') to {url}...")
             try:
                 import json
@@ -249,7 +251,7 @@ class KoboldAIClient(BaseLLMClient):
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
 
-    async def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate_response(self, prompt: str, system_prompt: str = "", use_tools: bool = True) -> str:
         url = f"{self.base_url}/api/v1/generate"
         
         # Combine system prompt and user context using standard ChatML style format

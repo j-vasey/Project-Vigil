@@ -123,7 +123,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
         
         client = get_llm_client(backend=backend, url=url, model=model)
         try:
-            summary = await client.generate_response(prompt=prompt, system_prompt="You are a helpful compression agent.")
+            summary = await client.generate_response(prompt=prompt, system_prompt="You are a helpful compression agent.", use_tools=False)
             
             # Get previous summary to combine if it exists
             prev_sum = repo.get_latest_conversation_summary(channel, user_id)
@@ -134,7 +134,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     f"Previous summary: {prev_sum.summary_text}\n\n"
                     f"New summary: {summary}"
                 )
-                summary = await client.generate_response(prompt=combine_prompt, system_prompt="You are a helpful compression agent.")
+                summary = await client.generate_response(prompt=combine_prompt, system_prompt="You are a helpful compression agent.", use_tools=False)
                 
             repo.save_conversation_summary(
                 channel=channel, 
@@ -195,11 +195,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                 backend = repo.get_config("llm_backend", "mock")
                 url = repo.get_config("llm_url", "http://localhost:11434")
                 model = repo.get_config("llm_model", "gemma-4-26B-A-4B-it-UD-Q3_K_M:latest")
-                num_ctx_str = repo.get_config("llm_num_ctx", "8192")
+                num_ctx_str = repo.get_config("llm_num_ctx", "32768")
                 try:
                     num_ctx = int(num_ctx_str)
                 except ValueError:
-                    num_ctx = 8192
+                    num_ctx = 32768
                 
                 from src.llm import get_llm_client
                 client = get_llm_client(backend=backend, url=url, model=model, num_ctx=num_ctx)
@@ -218,7 +218,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                     "Respond with exactly 'SYNC_CHAT', 'ASYNC_AGENT', or 'WEB_SEARCH'."
                 )
                 classifier_prompt = f"Prompt to classify: {message.message_body}"
-                route_decision = await client.generate_response(prompt=classifier_prompt, system_prompt=classifier_system)
+                route_decision = await client.generate_response(prompt=classifier_prompt, system_prompt=classifier_system, use_tools=False)
                 
                 use_background = "ASYNC_AGENT" in route_decision.upper()
                 use_web_search = "WEB_SEARCH" in route_decision.upper()
@@ -240,7 +240,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         "Incorporate the job token naturally into the text."
                     )
                     start_prompt = f"User request to start: {message.message_body}"
-                    start_msg_text = await client.generate_response(prompt=start_prompt, system_prompt=start_system)
+                    start_msg_text = await client.generate_response(prompt=start_prompt, system_prompt=start_system, use_tools=False)
                     
                     # Send immediate response with the job_id
                     await router.send_message(
