@@ -271,7 +271,17 @@ class BackgroundAgentRunner:
                     findings[f"step_{step_idx}_error"] = "Truncated: 15-step ceiling reached."
                     break
 
-                # Periodic progress update
+                # Humanized progress notice on first step
+                if idx == 0:
+                    progress_notice = "Give me a second, working through that for you now..."
+                    try:
+                        from src.gateway.engine import GatewayEngine
+                        gw = GatewayEngine(self.router)
+                        await gw.send_progress_notice(platform, user_id, progress_notice)
+                    except Exception as err:
+                        logger.warning(f"[Agent Runner] [{job_id}] Progress notice dispatch failed: {err}")
+
+                # Periodic progress update for long runs
                 if time.time() - last_status_update > 60:
                     update_system = (
                         "You are Project Vigil. Write one brief, warm sentence telling the user "

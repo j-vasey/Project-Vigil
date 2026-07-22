@@ -146,6 +146,7 @@ class OllamaClient(BaseLLMClient):
                 "stream": True,
                 "options": {
                     "num_ctx": self.num_ctx,
+                    "num_predict": 4096,
                     "temperature": 0.7
                 }
             }
@@ -198,8 +199,8 @@ class OllamaClient(BaseLLMClient):
                         print(f" [Done, {len(full_content)} chars]", flush=True)
                         logger.info(f"[Ollama Client] Raw response length: {len(full_content)} chars, tool_calls: {len(tool_calls)}, stream_done: {stream_done}")
                         
-                        # Strip <think>...</think> reasoning blocks from content.
-                        full_content = _re.sub(r"<think>.*?</think>", "", full_content, flags=_re.DOTALL).strip()
+                        # Strip <think>...</think> reasoning blocks from content (including unclosed tags).
+                        full_content = _re.sub(r"<think>.*?(?:</think>|$)", "", full_content, flags=_re.DOTALL).strip()
                         # Strip orphaned/unclosed <think> or </think> tags
                         full_content = _re.sub(r"</?think>", "", full_content, flags=_re.IGNORECASE).strip()
                         
@@ -274,7 +275,7 @@ class KoboldAIClient(BaseLLMClient):
 
         payload = {
             "prompt": formatted_prompt,
-            "max_length": 250,
+            "max_length": 2048,
             "temperature": 0.7,
             "quiet": True
         }

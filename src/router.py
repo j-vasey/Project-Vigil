@@ -88,7 +88,7 @@ class MessagingRouter:
     async def send_message(self, platform: str, user_id: str, text: str) -> bool:
         """
         Routes and sends an outbound message using the registered platform provider.
-        Splits text if it exceeds the 2000-character platform limit.
+        Splits text if it exceeds the platform character limit (Discord: 2000, Telegram: 4096).
         """
         platform_lower = platform.lower()
         provider = self.providers.get(platform_lower)
@@ -96,8 +96,17 @@ class MessagingRouter:
             logger.error(f"Failed to route message: No provider registered for platform '{platform_lower}'")
             return False
             
+        platform_max_chars = {
+            "discord": 2000,
+            "telegram": 4096,
+            "mock": 4096,
+            "twilio": 1600,
+            "whatsapp": 1600
+        }
+        max_chars = platform_max_chars.get(platform_lower, 2000)
+
         sanitized_text = sanitize_agent_output(text)
-        chunks = self.split_text(sanitized_text, max_chars=2000)
+        chunks = self.split_text(sanitized_text, max_chars=max_chars)
         success = True
         
         for idx, chunk in enumerate(chunks):

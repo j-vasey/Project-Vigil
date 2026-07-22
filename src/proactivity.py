@@ -161,6 +161,15 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
         focus_habit = habit_memories[0].fact if habit_memories else ""
         lifestyle_context = await extract_lifestyle_context()
 
+        topic_seeds = [
+            "Ask how their projects/tasks are going today and if they need any assistance.",
+            "Proactively offer to check upcoming calendar events or upcoming schedule.",
+            "Share an encouraging thought about balance, productivity, and well-being.",
+            "Ask if there are any specific topics, goals, or code tasks they want to tackle today."
+        ]
+        random_seed = random.choice(topic_seeds)
+        now_local_str = datetime.now().strftime("%A, %d %B %Y at %H:%M")
+
         if focus_habit:
             focus = (
                 f"Discovered negative behavioral trend: '{focus_habit}'. "
@@ -177,13 +186,22 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
                 "and pending tasks in a warm, supportive way."
             )
         else:
-            focus = "Initiate a friendly, casual check-in."
+            focus = f"Initiate a friendly, casual check-in. Topic seed: {random_seed}"
 
-        prompt = "System Context: Companion initiating outbound outreach.\n"
+        prompt_lines = [
+            f"[SYSTEM OUTREACH TRIGGER — {now_local_str}]",
+            f"Reason Code: {reason_code}",
+            f"User Lifestyle Context:\n{lifestyle_context}",
+            f"Outreach Focus: {focus}"
+        ]
+
         if history_str:
-            prompt += f"Recent Chat History:\n{history_str}\n\n"
-        prompt += f"User Lifestyle Context:\n{lifestyle_context}\n\nOutreach Focus: {focus}\n"
-        prompt += "Companion (outbound outreach message):"
+            prompt_lines.append(f"\nRecent Chat History:\n{history_str}")
+
+        prompt_lines.append(
+            "\nUser: (The user is currently idle. Initiate a friendly, natural outbound message based on the focus and context above. Do not repeat previous outreach verbatim.)"
+        )
+        prompt = "\n".join(prompt_lines)
 
         # 4. LLM call
         backend = repo.get_config("llm_backend", "mock")
@@ -276,12 +294,11 @@ async def trigger_proactive_outreach(reason_code: str, router: MessagingRouter) 
 
 async def start_proactivity_engine(router: MessagingRouter) -> None:
     """
-    Background schedule runner. Handles:
-    - Morning Briefing at 08:xx
-    - Evening Reflection at 21:xx
-    - Pseudo-random interval check-ins with configurable probability + jitter
+    Autonomous Agent Heartbeat & Proactivity Engine.
+    Executes periodic reflection loops, morning briefings (08:00), evening summaries (21:00),
+    and randomized context-driven reach-outs with jitter and cooldown gates.
     """
-    logger.info("[Proactivity] Starting Proactivity Engine loop...")
+    logger.info("[Agent Heartbeat] Starting Autonomous Proactivity Engine loop...")
     while True:
         try:
             now = datetime.now()
