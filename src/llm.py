@@ -209,9 +209,7 @@ class OllamaClient(BaseLLMClient):
                         
                     if not tool_calls:
                         # No tool calls — return ALL accumulated content from this and prior iterations
-                        if len(accumulated_contents) > 1:
-                            # The model generated text before a tool call on a prior iteration,
-                            # then continued here. Join them for a complete response.
+                        if accumulated_contents:
                             return "\n\n".join(accumulated_contents).strip()
                         return full_content.strip()
                         

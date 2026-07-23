@@ -123,6 +123,7 @@ class MessagingRouter:
         splits the message in half and recursively attempts to send the two pieces.
         """
         if not text.strip():
+            logger.warning("[Router] Attempted to send an empty message chunk via router. Skipping provider dispatch.")
             return True
             
         logger.debug(f"Attempting to send message of length {len(text)} (depth: {depth})")

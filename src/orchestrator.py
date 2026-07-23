@@ -410,10 +410,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         if clean_prev:
                             search_dialogue.append(f"Companion: {clean_prev}")
                         search_dialogue.append("Companion:")
-                        response_text = await client.generate_response(
+                        followup_text = await client.generate_response(
                             prompt="\n".join(search_dialogue),
                             system_prompt=inline_system_prompt
                         )
+                        response_text = followup_text.strip() if followup_text and followup_text.strip() else (clean_prev or "I ran a web search for you.")
 
                     # Check for [WEATHER: location] trigger
                     weather_match = re.search(r"\[WEATHER:\s*(.*?)\]", response_text, re.IGNORECASE)
@@ -434,10 +435,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         if clean_prev:
                             weather_dialogue.append(f"Companion: {clean_prev}")
                         weather_dialogue.append("Companion:")
-                        response_text = await client.generate_response(
+                        followup_text = await client.generate_response(
                             prompt="\n".join(weather_dialogue),
                             system_prompt=inline_system_prompt
                         )
+                        response_text = followup_text.strip() if followup_text and followup_text.strip() else (clean_prev or "I checked the weather for you.")
 
                     # Check for inline calendar / MCP tool trigger tags emitted by the LLM.
                     # Supported patterns: [VIEW_UPCOMING_AGENDA: N], [LIST_CALENDAR_EVENTS: query],
@@ -488,10 +490,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         if clean_prev:
                             cal_dialogue.append(f"Companion: {clean_prev}")
                         cal_dialogue.append("Companion:")
-                        response_text = await client.generate_response(
+                        followup_text = await client.generate_response(
                             prompt="\n".join(cal_dialogue),
                             system_prompt=inline_system_prompt
                         )
+                        response_text = followup_text.strip() if followup_text and followup_text.strip() else (clean_prev or "I checked your calendar for you.")
 
                     # Check for [VIEW_SCREEN] trigger
                     screen_match = re.search(r"\[VIEW_SCREEN\]", response_text, re.IGNORECASE)
@@ -511,10 +514,11 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                         if clean_prev:
                             screen_dialogue.append(f"Companion: {clean_prev}")
                         screen_dialogue.append("Companion:")
-                        response_text = await client.generate_response(
+                        followup_text = await client.generate_response(
                             prompt="\n".join(screen_dialogue),
                             system_prompt=inline_system_prompt
                         )
+                        response_text = followup_text.strip() if followup_text and followup_text.strip() else (clean_prev or "I took a look at your screen.")
 
                     # Check for [IMAGE: image prompt] trigger
                     image_match = re.search(r"\[IMAGE:\s*(.*?)\]", response_text)
@@ -556,6 +560,10 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                                 text=clean_text or f"[Image prompt: '{image_prompt}']"
                             )
                     else:
+                        if not response_text or not response_text.strip():
+                            logger.warning("[Orchestrator] Response text evaluated to empty. Using default fallback message.")
+                            response_text = "I received your message and processed it."
+
                         # 4. Save bot message to Database
                         repo.save_message(
                             channel=message.platform,

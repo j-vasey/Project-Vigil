@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger("project_vigil.mcp.client")
@@ -194,7 +195,7 @@ class MCPManager:
             # Fallback to local python venv execution
             python_exe = os.path.join(os.getcwd(), "venv", "Scripts", "python.exe")
             if not os.path.exists(python_exe):
-                python_exe = "python"
+                python_exe = sys.executable
                 
             self._server_definitions = {
                 "filesystem": [python_exe, "-m", "src.mcp.servers.filesystem"],
