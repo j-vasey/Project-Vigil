@@ -108,6 +108,10 @@ class MemoryUpdatePayload(BaseModel):
     category: str
 
 
+class SelectWorkflowPayload(BaseModel):
+    filename: str
+
+
 import socket
 
 def get_lan_ip() -> str:
@@ -388,6 +392,103 @@ def create_app(router: MessagingRouter) -> FastAPI:
             logger.error(f"[API] Failed to fetch ComfyUI checkpoints: {e}")
             raise HTTPException(status_code=400, detail=f"Error connecting to ComfyUI: {str(e)}")
 
+    @app.get("/api/comfyui/workflows")
+    async def get_comfyui_workflows():
+        """
+        Lists available ComfyUI workflows in the workflows directory and indicates active selection.
+        """
+        from src.comfyui import list_available_workflows
+        db = SessionLocal()
+        try:
+            repo = MessageRepository(db)
+            active_wf = repo.get_config("comfyui_workflow", "default_sd15.json")
+            workflows = list_available_workflows(active_filename=active_wf)
+            return {"status": "success", "active": active_wf, "workflows": workflows}
+        finally:
+            db.close()
+
+    @app.post("/api/comfyui/workflows/upload")
+    async def upload_comfyui_workflow(file: UploadFile = File(...)):
+        """
+        Uploads a custom ComfyUI workflow JSON template into the workflows directory.
+        """
+        import json
+        from src.comfyui import get_workflows_dir, validate_workflow_json
+        
+        if not file.filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="Only .json workflow files are supported.")
+            
+        filename = os.path.basename(file.filename)
+        contents = await file.read()
+        try:
+            parsed = json.loads(contents.decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON file: {e}")
+            
+        valid, reason = validate_workflow_json(parsed)
+        if not valid:
+            raise HTTPException(status_code=400, detail=reason)
+            
+        wf_dir = get_workflows_dir()
+        save_path = os.path.join(wf_dir, filename)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(parsed, f, indent=2)
+            
+        logger.info(f"[API] Uploaded custom ComfyUI workflow template: {filename}")
+        return {"status": "success", "filename": filename, "message": "Workflow uploaded successfully"}
+
+    @app.post("/api/comfyui/workflows/select")
+    async def select_comfyui_workflow(payload: SelectWorkflowPayload):
+        """
+        Sets the active ComfyUI workflow template.
+        """
+        from src.comfyui import get_workflows_dir
+        filename = os.path.basename(payload.filename)
+        wf_dir = get_workflows_dir()
+        target_path = os.path.join(wf_dir, filename)
+        
+        if not os.path.exists(target_path):
+            raise HTTPException(status_code=404, detail=f"Workflow template '{filename}' not found.")
+            
+        db = SessionLocal()
+        try:
+            repo = MessageRepository(db)
+            repo.set_config("comfyui_workflow", filename)
+            logger.info(f"[API] Set active ComfyUI workflow template to '{filename}'")
+            return {"status": "success", "active": filename, "message": f"Active workflow updated to {filename}"}
+        finally:
+            db.close()
+
+    @app.delete("/api/comfyui/workflows/{filename}")
+    async def delete_comfyui_workflow(filename: str):
+        """
+        Deletes a custom uploaded ComfyUI workflow template.
+        """
+        from src.comfyui import get_workflows_dir
+        safe_filename = os.path.basename(filename)
+        built_in = {"default_sd15.json", "vigil_api.json"}
+        
+        if safe_filename.lower() in built_in:
+            raise HTTPException(status_code=400, detail="Cannot delete built-in system workflows.")
+            
+        db = SessionLocal()
+        try:
+            repo = MessageRepository(db)
+            active_wf = repo.get_config("comfyui_workflow", "default_sd15.json")
+            if safe_filename.lower() == active_wf.lower():
+                raise HTTPException(status_code=400, detail="Cannot delete the currently active workflow. Please select a different workflow first.")
+        finally:
+            db.close()
+            
+        wf_dir = get_workflows_dir()
+        target_path = os.path.join(wf_dir, safe_filename)
+        if not os.path.exists(target_path):
+            raise HTTPException(status_code=404, detail=f"Workflow '{safe_filename}' not found.")
+            
+        os.remove(target_path)
+        logger.info(f"[API] Deleted custom ComfyUI workflow template: {safe_filename}")
+        return {"status": "success", "message": f"Workflow {safe_filename} deleted."}
+
     @app.post("/api/llm/test")
     async def test_llm_connection(payload: LLMTestPayload):
         """
@@ -445,9 +546,10 @@ def create_app(router: MessagingRouter) -> FastAPI:
                 comfy_backend = repo.get_config("comfyui_backend", "mock")
                 comfy_url = repo.get_config("comfyui_url", "http://localhost:8188")
                 comfy_ckpt = repo.get_config("comfyui_ckpt", "v1-5-pruned-emaonly.safetensors")
+                comfy_workflow = repo.get_config("comfyui_workflow", "default_sd15.json")
                 
                 from src.comfyui import ComfyUIClient
-                comfy_client = ComfyUIClient(base_url=comfy_url, backend=comfy_backend, ckpt_name=comfy_ckpt)
+                comfy_client = ComfyUIClient(base_url=comfy_url, backend=comfy_backend, ckpt_name=comfy_ckpt, workflow_filename=comfy_workflow)
                 img_bytes = await comfy_client.generate_image(image_prompt)
                 
                 # Save manual message to history

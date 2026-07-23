@@ -29,6 +29,71 @@ def _generate_placeholder_png(width: int = 256, height: int = 256) -> bytes:
 MOCK_PNG_BYTES = _generate_placeholder_png(256, 256)
 
 
+def get_workflows_dir() -> str:
+    """Returns the absolute path to the workflows folder, ensuring it exists."""
+    wf_dir = os.path.join(os.getcwd(), "workflows")
+    os.makedirs(wf_dir, exist_ok=True)
+    return wf_dir
+
+def validate_workflow_json(content: dict) -> tuple:
+    """
+    Validates if a parsed dictionary matches ComfyUI's API prompt graph format.
+    API format requires a dictionary mapping node IDs (strings) to objects containing 'class_type' and 'inputs'.
+    """
+    if not isinstance(content, dict) or not content:
+        return False, "JSON content must be a non-empty object."
+    
+    if "nodes" in content and "links" in content:
+        return False, "This appears to be a ComfyUI UI format save. Please export using ComfyUI's 'Save (API Format)' setting."
+        
+    has_valid_node = False
+    for node_id, node_data in content.items():
+        if isinstance(node_data, dict) and "class_type" in node_data and "inputs" in node_data:
+            has_valid_node = True
+            break
+            
+    if not has_valid_node:
+        return False, "Invalid ComfyUI API workflow format. Expected node dictionary with 'class_type' and 'inputs'."
+        
+    return True, "Valid ComfyUI API format workflow."
+
+def list_available_workflows(active_filename: str = "") -> list:
+    """
+    Lists all available ComfyUI workflow JSON files in the workflows directory.
+    """
+    wf_dir = get_workflows_dir()
+    workflows = []
+    built_in = {"default_sd15.json", "vigil_api.json"}
+    
+    for filename in sorted(os.listdir(wf_dir)):
+        if filename.endswith(".json"):
+            filepath = os.path.join(wf_dir, filename)
+            node_count = 0
+            is_valid = False
+            title = filename[:-5].replace("_", " ").title()
+            
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    valid, _ = validate_workflow_json(data)
+                    if valid:
+                        is_valid = True
+                        node_count = len(data)
+            except Exception:
+                pass
+                
+            workflows.append({
+                "filename": filename,
+                "name": title,
+                "is_active": (filename.lower() == active_filename.lower()),
+                "is_custom": filename.lower() not in built_in,
+                "node_count": node_count,
+                "is_valid": is_valid
+            })
+            
+    return workflows
+
+
 class ComfyUIClient:
     """
     Client wrapper for ComfyUI's prompt API.
@@ -39,11 +104,13 @@ class ComfyUIClient:
         self, 
         base_url: str = "http://localhost:8188", 
         backend: str = "mock", 
-        ckpt_name: str = "v1-5-pruned-emaonly.safetensors"
+        ckpt_name: str = "v1-5-pruned-emaonly.safetensors",
+        workflow_filename: str = "default_sd15.json"
     ):
         self.base_url = base_url.rstrip("/")
         self.backend = backend.lower()
         self.ckpt_name = ckpt_name
+        self.workflow_filename = workflow_filename or "default_sd15.json"
 
     async def generate_image(self, prompt_text: str) -> Optional[bytes]:
         """
@@ -59,48 +126,84 @@ class ComfyUIClient:
             logger.info(f"[ComfyUI Client] Returning mock placeholder PNG for prompt: '{prompt_text}'")
             return MOCK_PNG_BYTES
 
-        logger.info(f"[ComfyUI Client] Submitting prompt: '{prompt_text}' to ComfyUI at {self.base_url}...")
+        logger.info(f"[ComfyUI Client] Submitting prompt: '{prompt_text}' to ComfyUI at {self.base_url} (workflow: {self.workflow_filename})...")
         client_id = str(uuid.uuid4())
         
-        # Load Vigil_API.json dynamically from workspace root or fall back to secondary templates / default Stable Diffusion workflow
+        # Resolve workflow template file
+        wf_dir = get_workflows_dir()
+        target_path = os.path.join(wf_dir, self.workflow_filename)
+        if not os.path.exists(target_path):
+            target_path = os.path.join(os.getcwd(), self.workflow_filename)
+        if not os.path.exists(target_path):
+            target_path = os.path.join(os.getcwd(), "Vigil_API.json")
+        if not os.path.exists(target_path):
+            target_path = os.path.join(wf_dir, "default_sd15.json")
+
         workflow = None
-        workflow_path = "Vigil_API.json"
-        if not os.path.exists(workflow_path):
-            workflow_path = "API_Workflow.json"
-        
-        if os.path.exists(workflow_path):
+        if os.path.exists(target_path):
             try:
-                with open(workflow_path, "r", encoding="utf-8") as f:
+                with open(target_path, "r", encoding="utf-8") as f:
                     workflow = json.load(f)
-                logger.info(f"[ComfyUI Client] Loaded custom workflow template from {workflow_path}")
+                logger.info(f"[ComfyUI Client] Loaded workflow template from {target_path}")
                 
-                # 1. Update Positive Prompt
-                if "5" in workflow and "inputs" in workflow["5"]:
-                    workflow["5"]["inputs"]["positive"] = prompt_text
-                elif "1280" in workflow and "inputs" in workflow["1280"]:
-                    workflow["1280"]["inputs"]["positive"] = prompt_text
-                elif "6" in workflow and "inputs" in workflow["6"]:
-                    workflow["6"]["inputs"]["text"] = prompt_text
+                # Parameterize workflow nodes dynamically
+                rand_seed = random.randint(1, 1125899906842624)
+                prompt_updated = False
+                ckpt_updated = False
+                seed_updated = False
+                
+                for node_id, node in workflow.items():
+                    if not isinstance(node, dict) or "inputs" not in node:
+                        continue
+                    inputs = node.get("inputs", {})
+                    class_type = str(node.get("class_type", ""))
+                    meta_title = str(node.get("_meta", {}).get("title", ""))
                     
-                # 2. Update Checkpoint Model
-                if "1" in workflow and "inputs" in workflow["1"] and workflow["1"].get("class_type") == "CheckpointLoaderSimple":
-                    workflow["1"]["inputs"]["ckpt_name"] = self.ckpt_name
-                elif "190" in workflow and "inputs" in workflow["190"]:
-                    workflow["190"]["inputs"]["ckpt_name"] = self.ckpt_name
-                elif "4" in workflow and "inputs" in workflow["4"]:
-                    workflow["4"]["inputs"]["ckpt_name"] = self.ckpt_name
-                    
-                # 3. Update Random Seed
-                rand_seed = random.randint(1, 1125899906842624)  # 64-bit int max range for comfyui seeds
-                if "10" in workflow and "inputs" in workflow["10"]:
-                    workflow["10"]["inputs"]["seed"] = rand_seed
-                elif "685" in workflow and "inputs" in workflow["685"]:
-                    workflow["685"]["inputs"]["seed"] = rand_seed
-                elif "3" in workflow and "inputs" in workflow["3"]:
-                    workflow["3"]["inputs"]["seed"] = rand_seed
-                    
+                    # 1. Update positive text prompt
+                    if "text" in inputs and (class_type == "CLIPTextEncode" or "prompt" in meta_title.lower() or "positive" in meta_title.lower()):
+                        if not prompt_updated:
+                            inputs["text"] = prompt_text
+                            prompt_updated = True
+                    elif "positive" in inputs and isinstance(inputs["positive"], str):
+                        inputs["positive"] = prompt_text
+                        prompt_updated = True
+                        
+                    # 2. Update checkpoint model
+                    if "ckpt_name" in inputs and ("checkpointloader" in class_type.lower() or "checkpoint" in meta_title.lower()):
+                        inputs["ckpt_name"] = self.ckpt_name
+                        ckpt_updated = True
+                        
+                    # 3. Update random seed
+                    if "seed" in inputs and not isinstance(inputs["seed"], list):
+                        inputs["seed"] = rand_seed
+                        seed_updated = True
+                    elif "noise_seed" in inputs and not isinstance(inputs["noise_seed"], list):
+                        inputs["noise_seed"] = rand_seed
+                        seed_updated = True
+                
+                # Fallback to specific node IDs if dynamic matching didn't update prompt/checkpoint/seed
+                if not prompt_updated:
+                    if "5" in workflow and "inputs" in workflow["5"]:
+                        workflow["5"]["inputs"]["positive"] = prompt_text
+                    elif "1280" in workflow and "inputs" in workflow["1280"]:
+                        workflow["1280"]["inputs"]["positive"] = prompt_text
+                    elif "6" in workflow and "inputs" in workflow["6"]:
+                        workflow["6"]["inputs"]["text"] = prompt_text
+                        
+                if not ckpt_updated:
+                    if "1" in workflow and "inputs" in workflow["1"] and "ckpt_name" in workflow["1"]["inputs"]:
+                        workflow["1"]["inputs"]["ckpt_name"] = self.ckpt_name
+                    elif "4" in workflow and "inputs" in workflow["4"] and "ckpt_name" in workflow["4"]["inputs"]:
+                        workflow["4"]["inputs"]["ckpt_name"] = self.ckpt_name
+
+                if not seed_updated:
+                    if "10" in workflow and "inputs" in workflow["10"]:
+                        workflow["10"]["inputs"]["seed"] = rand_seed
+                    elif "3" in workflow and "inputs" in workflow["3"]:
+                        workflow["3"]["inputs"]["seed"] = rand_seed
+                        
             except Exception as e:
-                logger.error(f"[ComfyUI Client] Failed to parse custom workflow JSON: {e}. Falling back to default.")
+                logger.error(f"[ComfyUI Client] Failed to parse custom workflow JSON at {target_path}: {e}. Falling back to default.")
                 workflow = None
 
         if workflow is None:

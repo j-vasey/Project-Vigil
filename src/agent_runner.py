@@ -339,9 +339,10 @@ class BackgroundAgentRunner:
                 comfy_backend = repo.get_config("comfyui_backend", "mock")
                 comfy_url = repo.get_config("comfyui_url", "http://localhost:8188")
                 comfy_ckpt = repo.get_config("comfyui_ckpt", "v1-5-pruned-emaonly.safetensors")
+                comfy_workflow = repo.get_config("comfyui_workflow", "default_sd15.json")
 
                 from src.comfyui import ComfyUIClient
-                comfy = ComfyUIClient(base_url=comfy_url, backend=comfy_backend, ckpt_name=comfy_ckpt)
+                comfy = ComfyUIClient(base_url=comfy_url, backend=comfy_backend, ckpt_name=comfy_ckpt, workflow_filename=comfy_workflow)
                 img_bytes = await comfy.generate_image(image_prompt_text)
 
                 if img_bytes:

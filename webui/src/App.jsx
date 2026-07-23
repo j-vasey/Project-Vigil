@@ -13,7 +13,11 @@ import {
   Bot, 
   User, 
   Radio,
-  ShieldCheck
+  ShieldCheck,
+  Upload,
+  Trash2,
+  FileText,
+  Check
 } from "lucide-react";
 
 const API_BASE = window.location.port === "5173" || window.location.port === "5174" 
@@ -39,6 +43,7 @@ function App() {
     comfyui_backend: "mock",
     comfyui_url: "http://localhost:8188",
     comfyui_ckpt: "v1-5-pruned-emaonly.safetensors",
+    comfyui_workflow: "default_sd15.json",
     workspace_path: "",
     url_root: ""
   });
@@ -53,6 +58,10 @@ function App() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [comfyuiCheckpoints, setComfyuiCheckpoints] = useState([]);
   const [isFetchingCheckpoints, setIsFetchingCheckpoints] = useState(false);
+  const [workflowsList, setWorkflowsList] = useState([]);
+  const [isFetchingWorkflows, setIsFetchingWorkflows] = useState(false);
+  const [isUploadingWorkflow, setIsUploadingWorkflow] = useState(false);
+  const [workflowStatus, setWorkflowStatus] = useState(null);
   const [connectionTestResult, setConnectionTestResult] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
 
@@ -173,22 +182,97 @@ function App() {
     }
   };
 
-  // --- Fetch ComfyUI Checkpoints ---
-  const fetchComfyuiCheckpoints = async (url) => {
-    setIsFetchingCheckpoints(true);
+  // --- Fetch ComfyUI Workflows ---
+  const fetchWorkflows = async () => {
+    setIsFetchingWorkflows(true);
     try {
-      const res = await fetch(`${API_BASE}/api/comfyui/checkpoints?url=${encodeURIComponent(url || "")}`);
+      const res = await fetch(`${API_BASE}/api/comfyui/workflows`);
       if (res.ok) {
         const data = await res.json();
-        setComfyuiCheckpoints(data.checkpoints || []);
-      } else {
-        setComfyuiCheckpoints([]);
+        setWorkflowsList(data.workflows || []);
+        if (data.active) {
+          setConfigs(prev => ({ ...prev, comfyui_workflow: data.active }));
+        }
       }
     } catch (err) {
-      console.error("Error fetching ComfyUI checkpoints:", err);
-      setComfyuiCheckpoints([]);
+      console.error("Error fetching ComfyUI workflows:", err);
     } finally {
-      setIsFetchingCheckpoints(false);
+      setIsFetchingWorkflows(false);
+    }
+  };
+
+  const handleSelectWorkflow = async (filename) => {
+    setWorkflowStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/comfyui/workflows/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setConfigs(prev => ({ ...prev, comfyui_workflow: data.active }));
+        setWorkflowStatus({ type: "success", message: `Active workflow updated to '${filename}'` });
+        fetchWorkflows();
+        addSystemLog(`[SYSTEM] Set active ComfyUI workflow to '${filename}'`);
+      } else {
+        setWorkflowStatus({ type: "error", message: data.detail || "Failed to select workflow." });
+      }
+    } catch (err) {
+      setWorkflowStatus({ type: "error", message: err.message });
+    }
+  };
+
+  const handleUploadWorkflow = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setWorkflowStatus({ type: "error", message: "Only .json workflow files are supported." });
+      return;
+    }
+    setIsUploadingWorkflow(true);
+    setWorkflowStatus(null);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/comfyui/workflows/upload`, {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setWorkflowStatus({ type: "success", message: `Uploaded custom workflow template: ${data.filename}` });
+        addSystemLog(`[SYSTEM] Uploaded custom ComfyUI workflow template: ${data.filename}`);
+        fetchWorkflows();
+      } else {
+        setWorkflowStatus({ type: "error", message: data.detail || "Failed to upload workflow." });
+      }
+    } catch (err) {
+      setWorkflowStatus({ type: "error", message: err.message });
+    } finally {
+      setIsUploadingWorkflow(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleDeleteWorkflow = async (filename) => {
+    if (!window.confirm(`Are you sure you want to delete custom workflow '${filename}'?`)) return;
+    setWorkflowStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/comfyui/workflows/${encodeURIComponent(filename)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setWorkflowStatus({ type: "success", message: `Deleted custom workflow: ${filename}` });
+        addSystemLog(`[SYSTEM] Deleted custom ComfyUI workflow: ${filename}`);
+        fetchWorkflows();
+      } else {
+        setWorkflowStatus({ type: "error", message: data.detail || "Failed to delete workflow." });
+      }
+    } catch (err) {
+      setWorkflowStatus({ type: "error", message: err.message });
     }
   };
 
@@ -367,6 +451,7 @@ function App() {
     fetchHealth();
     fetchConfigs();
     fetchM365Config();
+    fetchWorkflows();
 
     // Subscribe to SSE
     const connectSSE = () => {
@@ -680,6 +765,104 @@ function App() {
                       </div>
                     </div>
                   )}
+
+                  {/* ComfyUI Workflow Template Selector & Upload Manager */}
+                  <div className="flex flex-col gap-3 bg-slate-950/60 border border-slate-850 p-4 rounded-xl mt-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-purple-400" />
+                        ComfyUI Workflow Template
+                      </label>
+                      <div className="flex items-center gap-2">
+                        {isFetchingWorkflows && (
+                          <span className="text-[10px] text-purple-400 animate-pulse lowercase">loading...</span>
+                        )}
+                        <label className="cursor-pointer bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 hover:border-purple-500/50 text-xs px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 font-semibold">
+                          <Upload className="h-3 w-3" />
+                          <span>{isUploadingWorkflow ? "Uploading..." : "Upload Workflow (.JSON)"}</span>
+                          <input
+                            type="file"
+                            accept=".json"
+                            onChange={handleUploadWorkflow}
+                            disabled={isUploadingWorkflow}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Workflow status notification alert */}
+                    {workflowStatus && (
+                      <div className={`p-2.5 rounded-lg text-xs border ${
+                        workflowStatus.type === "success" 
+                          ? "bg-emerald-950/50 border-emerald-800 text-emerald-300" 
+                          : "bg-rose-950/50 border-rose-800 text-rose-300"
+                      }`}>
+                        {workflowStatus.message}
+                      </div>
+                    )}
+
+                    {/* Workflow Template Cards Grid */}
+                    <div className="grid grid-cols-1 gap-2 mt-1">
+                      {workflowsList.map((wf) => (
+                        <div 
+                          key={wf.filename}
+                          onClick={() => !wf.is_active && handleSelectWorkflow(wf.filename)}
+                          className={`p-3 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                            wf.is_active 
+                              ? "bg-purple-950/40 border-purple-500/60 shadow-lg shadow-purple-950/30" 
+                              : "bg-slate-900/50 border-slate-800 hover:border-slate-700 hover:bg-slate-900"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${
+                              wf.is_active ? "bg-purple-600 text-white" : "bg-slate-800 text-slate-400"
+                            }`}>
+                              {wf.is_active ? <Check className="h-4 w-4" /> : <FileText className="h-3.5 w-3.5" />}
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                                <span>{wf.name}</span>
+                                {wf.is_active && (
+                                  <span className="bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] px-1.5 py-0.5 rounded font-mono">
+                                    ACTIVE
+                                  </span>
+                                )}
+                                {wf.is_custom ? (
+                                  <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] px-1.5 py-0.5 rounded">
+                                    Custom
+                                  </span>
+                                ) : (
+                                  <span className="bg-slate-800 text-slate-400 border border-slate-700 text-[10px] px-1.5 py-0.5 rounded">
+                                    Built-in
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                                {wf.filename} • {wf.node_count} nodes
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {wf.is_custom && !wf.is_active && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteWorkflow(wf.filename);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                                title="Delete Custom Workflow"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 {/* System Persona Prompt */}

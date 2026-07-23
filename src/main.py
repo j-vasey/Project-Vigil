@@ -97,6 +97,7 @@ def seed_defaults():
             "comfyui_backend": "mock",                # 'mock' or 'comfyui'
             "comfyui_url": "http://localhost:8188",
             "comfyui_ckpt": "v1-5-pruned-emaonly.safetensors",
+            "comfyui_workflow": "default_sd15.json",
             "discord_token": "",                      # Populated via frontend credentials UI
             "discord_user_id": "",                    # Populated via frontend credentials UI
             "twilio_account_sid": "",                 # Populated via frontend credentials UI
