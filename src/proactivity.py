@@ -516,10 +516,12 @@ async def start_memory_evaluator_engine(router: MessagingRouter):
                 f"Evaluate this log now."
             )
 
-            # Use fast backend
             backend = repo.get_config("llm_backend", "mock")
             url = repo.get_config("llm_url", "http://localhost:11434")
-            model = repo.get_config("proactive_model", "qwen2.5:7b")
+            active_llm_model = repo.get_config("llm_model", "gemma:4")
+            model = repo.get_config("proactive_model", active_llm_model)
+            if not model or not model.strip():
+                model = active_llm_model
             client = get_llm_client(backend=backend, url=url, model=model)
 
             response_text = await client.generate_response(prompt=prompt, system_prompt=system_prompt, use_tools=False)

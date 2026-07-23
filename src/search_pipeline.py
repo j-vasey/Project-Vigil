@@ -25,7 +25,7 @@ async def run_search_pipeline(user_prompt: str) -> str:
         repo = MessageRepository(db)
         backend = repo.get_config("llm_backend", "ollama")
         url = repo.get_config("llm_url", "http://localhost:11434")
-        model = repo.get_config("llm_model", "gemma-4-26B-A-4B-it-UD-Q3_K_M:latest")
+        model = repo.get_config("llm_model", "gemma:4")
     finally:
         db.close()
         

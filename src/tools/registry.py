@@ -668,7 +668,10 @@ async def view_screen() -> str:
         
         backend = _load_db_config("llm_backend", "mock")
         url = _load_db_config("llm_url", "http://localhost:11434")
-        model = _load_db_config("screen_memory_model", "qwen3.5-agent")
+        active_llm_model = _load_db_config("llm_model", "gemma:4")
+        model = _load_db_config("screen_memory_model", active_llm_model)
+        if not model or not model.strip():
+            model = active_llm_model
         
         client = get_llm_client(backend=backend, url=url, model=model)
         

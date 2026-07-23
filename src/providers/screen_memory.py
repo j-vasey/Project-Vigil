@@ -55,7 +55,10 @@ class ScreenMemoryService:
                     
                     backend = repo.get_config("llm_backend", "mock")
                     url = repo.get_config("llm_url", "http://localhost:11434")
-                    model = repo.get_config("screen_memory_model", "qwen3.5-agent")
+                    active_llm_model = repo.get_config("llm_model", "gemma:4")
+                    model = repo.get_config("screen_memory_model", active_llm_model)
+                    if not model or not model.strip():
+                        model = active_llm_model
                     
                     client = get_llm_client(backend=backend, url=url, model=model)
                     

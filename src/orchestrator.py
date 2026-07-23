@@ -194,7 +194,7 @@ async def start_queue_worker(router: MessagingRouter) -> None:
                 # Fetch LLM configurations
                 backend = repo.get_config("llm_backend", "mock")
                 url = repo.get_config("llm_url", "http://localhost:11434")
-                model = repo.get_config("llm_model", "gemma-4-26B-A-4B-it-UD-Q3_K_M:latest")
+                model = repo.get_config("llm_model", "gemma:4")
                 num_ctx_str = repo.get_config("llm_num_ctx", "32768")
                 try:
                     num_ctx = int(num_ctx_str)
