@@ -182,6 +182,25 @@ function App() {
     }
   };
 
+  // --- Fetch ComfyUI Checkpoints ---
+  const fetchComfyuiCheckpoints = async (url) => {
+    setIsFetchingCheckpoints(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/comfyui/checkpoints?url=${encodeURIComponent(url || "")}`);
+      if (res.ok) {
+        const data = await res.json();
+        setComfyuiCheckpoints(data.checkpoints || []);
+      } else {
+        setComfyuiCheckpoints([]);
+      }
+    } catch (err) {
+      console.error("Error fetching ComfyUI checkpoints:", err);
+      setComfyuiCheckpoints([]);
+    } finally {
+      setIsFetchingCheckpoints(false);
+    }
+  };
+
   // --- Fetch ComfyUI Workflows ---
   const fetchWorkflows = async () => {
     setIsFetchingWorkflows(true);
